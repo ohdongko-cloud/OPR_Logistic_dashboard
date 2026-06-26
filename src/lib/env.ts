@@ -23,6 +23,14 @@ export const env = {
   // 마스터 관리자 1명(RBAC). 하드코딩 금지 — 반드시 env.
   MASTER_ADMIN_EMAIL: process.env.MASTER_ADMIN_EMAIL,
 
+  // ── OTP 메일 발송(Google SMTP) ──────────────────────────────────────────
+  // SMTP_USER+SMTP_PASS(Gmail 계정·앱비밀번호) 또는 EMAIL_SERVER(URL) 중 하나.
+  // 미설정 시: 개발=콘솔 로그 폴백 / production=발송 불가(코드 노출 금지).
+  SMTP_USER: process.env.SMTP_USER,
+  SMTP_PASS: process.env.SMTP_PASS,
+  EMAIL_SERVER: process.env.EMAIL_SERVER,
+  EMAIL_FROM: process.env.EMAIL_FROM,
+
   NODE_ENV: process.env.NODE_ENV ?? "development",
 } as const;
 

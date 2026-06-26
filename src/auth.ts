@@ -1,67 +1,155 @@
 /**
- * Auth.js (NextAuth v5) 골격 설정.
+ * Auth.js (NextAuth v5) — 이메일 OTP 인증 + DB 백킹 RBAC.
  *
- * ⚠️ provider 는 "자리만" 둔다 — 실제 인증 메일 시스템 미정(설계문서 §7 Q6 영역).
- *    회사 SSO / 이메일 OTP / 매직링크 중 무엇을 쓸지 확정되면 providers 에 추가.
- *    (참조 피킹앱은 Gmail SMTP OTP 자체구현 — 코드 손대지 않음. 이 레포는 Auth.js 기반.)
+ * 인증 방식(사용자 확정): @eland.co.kr 이메일 입력 → 6자리 OTP 메일 발송 →
+ *   OTP 입력 시 인증(수신자 인증). provider = Credentials(email+code) — authorize 에서
+ *   OTP 검증(verifyOtpForEmail) → 통과 시 User upsert(최초=VIEWER, 마스터=ADMIN).
  *
- * 도메인 제한 가드는 signIn 콜백에 연결됨(isEmailAllowed).
- * DB 어댑터(PrismaAdapter)도 자리만 — DATABASE_URL 구성 시 활성.
+ * 세션 = JWT 전략(Credentials 제약). 단 **권한 즉시반영**을 위해:
+ *   - jwt 콜백이 매 요청 DB 에서 role 을 재조회(관리자 강등/승격 즉시 반영).
+ *   - tab 별 세부권한(TabPermission)은 requireTab/effectiveLevel 이 매 요청 DB 조회.
+ *   → 세션 토큰엔 role 만 캐시, 세밀 권한은 항상 DB 가 단일 진실원.
  *
- * 근거: 설계문서 §5(입력/출력·권한) · CLAUDE.md 불변규칙.
+ * 도메인 가드(@eland.co.kr)는 authorize·signIn 양쪽에서 서버단 강제(isEmailAllowed).
+ *
+ * 근거: 작업지시(OTP·도메인가드·즉시반영·마스터부트스트랩) · 아키텍처 §4.
  */
 import NextAuth, { type NextAuthConfig } from "next-auth";
+import Credentials from "next-auth/providers/credentials";
 
+import { authConfigEdge, authSecret } from "@/auth.config";
+import { verifyOtpForEmail } from "@/lib/auth/otp-store";
 import { isEmailAllowed } from "@/lib/auth/allowlist";
 import { env } from "@/lib/env";
+import { getPrisma } from "@/lib/prisma";
 
-/**
- * AUTH_SECRET 해결:
- *   - 운영(production): 반드시 env(AUTH_SECRET) — 없으면 Auth.js 가 정상적으로 실패.
- *   - 개발(골격 구동): env 없으면 dev 전용 임시 시크릿으로 폴백(엔드포인트 500 방지).
- *     이 폴백 값은 시크릿이 아니며(공개 상수) 개발 편의용. 절대 운영에서 쓰지 말 것.
- */
-const DEV_FALLBACK_SECRET =
-  "dev-only-insecure-secret-not-for-production-replace-with-AUTH_SECRET";
-const authSecret =
-  env.AUTH_SECRET ??
-  (env.NODE_ENV !== "production" ? DEV_FALLBACK_SECRET : undefined);
+/** 이메일 정규화(소문자·트림). */
+function normEmail(raw: string): string {
+  return raw.trim().toLowerCase();
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// provider 자리. 예시(미사용 — 메일 시스템 확정 후 주석 해제 + env 구성):
-//
-//   import EmailProvider from "next-auth/providers/nodemailer";
-//   providers: [ EmailProvider({ server: process.env.EMAIL_SERVER, from: ... }) ]
-//
-// 또는 회사 SSO(OIDC):
-//   import { OIDCProvider } from "...";
-// ─────────────────────────────────────────────────────────────────────────────
+/** 이 이메일이 마스터 관리자인가(env). */
+function isMasterAdmin(email: string): boolean {
+  const master = env.MASTER_ADMIN_EMAIL?.trim().toLowerCase();
+  return Boolean(master && email === master);
+}
 
 export const authConfig: NextAuthConfig = {
-  secret: authSecret,
-  trustHost: true,
+  // 엣지 안전 기본(secret·session·pages·authorized) 확장 + Node 전용 provider/jwt 추가.
+  ...authConfigEdge,
 
-  // 메일/프로바이더 미정 → 지금은 빈 배열(로그인 비활성, 가드만 준비).
-  providers: [],
+  providers: [
+    Credentials({
+      id: "otp",
+      name: "이메일 OTP",
+      credentials: {
+        email: { label: "이메일", type: "email" },
+        code: { label: "인증코드", type: "text" },
+      },
+      /**
+       * OTP 검증 → 통과 시 User upsert. 실패 시 null(=인증 거부).
+       * 도메인 가드 + OTP 검증 + 최초가입/마스터 role 결정.
+       */
+      async authorize(creds) {
+        const email = normEmail(String(creds?.email ?? ""));
+        const code = String(creds?.code ?? "");
+        if (!email || !code) return null;
 
-  // DB 어댑터 자리: DATABASE_URL 구성되면 PrismaAdapter(getPrisma()) 연결.
-  // adapter: ... (다음 단계)
+        // 도메인 가드(서버단 거부).
+        if (!isEmailAllowed(email)) return null;
 
-  session: { strategy: "jwt" },
+        const prisma = getPrisma();
+        if (!prisma || !authSecret) return null;
 
-  pages: {
-    signIn: "/login",
-  },
+        const result = await verifyOtpForEmail({
+          prisma,
+          email,
+          code,
+          serverSecret: authSecret,
+        });
+        if (!result.ok) return null;
+
+        // 검증 성공 → User upsert. 최초=VIEWER, 마스터=ADMIN(항상 보장).
+        const desiredAdmin = isMasterAdmin(email);
+        const user = await prisma.user.upsert({
+          where: { email },
+          update: {
+            emailVerified: new Date(),
+            // 마스터는 항상 ADMIN 보장(강등 불가). 일반 계정 role 은 건드리지 않음.
+            ...(desiredAdmin ? { role: "ADMIN" } : {}),
+          },
+          create: {
+            email,
+            role: desiredAdmin ? "ADMIN" : "VIEWER",
+            active: true,
+            emailVerified: new Date(),
+          },
+        });
+
+        if (!user.active) return null; // 비활성 계정 차단.
+
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name ?? user.email,
+          role: user.role,
+        };
+      },
+    }),
+  ],
 
   callbacks: {
     /**
-     * 로그인 게이트: 허용 이메일(도메인/예외/마스터)만 통과.
-     * provider 가 추가되기 전엔 호출되지 않지만, 가드는 미리 박아둔다.
+     * 로그인 게이트(이중 방어): 허용 이메일(도메인/예외/마스터)만 통과.
      */
     signIn({ user }) {
       return isEmailAllowed(user?.email);
     },
-    /** 보호 페이지 인가(미들웨어/서버에서 활용). 골격: 세션 유무만. */
+
+    /**
+     * JWT: 최초 로그인 시 id·role 주입. 이후 매 요청 DB 에서 role 재조회(즉시반영).
+     */
+    async jwt({ token, user }) {
+      if (user) {
+        token.uid = (user as { id?: string }).id;
+        token.role = (user as { role?: string }).role;
+      }
+      // 권한 즉시반영: 토큰의 uid 로 DB role 재조회(강등/승격/비활성 반영).
+      if (token.uid) {
+        const prisma = getPrisma();
+        if (prisma) {
+          try {
+            const u = await prisma.user.findUnique({
+              where: { id: token.uid as string },
+              select: { role: true, active: true },
+            });
+            if (!u || !u.active) {
+              // 삭제·비활성 → 토큰 무력화(role 제거).
+              token.role = undefined;
+              token.uid = undefined;
+            } else {
+              token.role = u.role;
+            }
+          } catch {
+            // DB 일시 오류 → 기존 토큰 role 유지(가용성).
+          }
+        }
+      }
+      return token;
+    },
+
+    /** 세션에 id·role 노출(클라/서버 가드용). */
+    session({ session, token }) {
+      if (session.user) {
+        (session.user as { id?: string }).id = token.uid as string | undefined;
+        (session.user as { role?: string }).role = token.role as
+          | string
+          | undefined;
+      }
+      return session;
+    },
+
+    /** 보호 페이지 인가(미들웨어): 세션 유무. */
     authorized({ auth }) {
       return Boolean(auth?.user);
     },
