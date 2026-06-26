@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { NavTabs } from "@/components/nav-tabs";
 import { PeriodToggle } from "@/components/period-toggle";
@@ -17,7 +18,9 @@ export default function DashboardLayout({
           OPR 물류 실적 대시보드
         </Link>
         <div className="flex items-center gap-3">
-          <PeriodToggle />
+          <Suspense fallback={<div className="h-8 w-28 rounded-md border border-zinc-200" />}>
+            <PeriodToggle />
+          </Suspense>
           {/* TODO(다음 단계): 필터(▾) · 사용자/로그아웃(세션) */}
         </div>
       </header>

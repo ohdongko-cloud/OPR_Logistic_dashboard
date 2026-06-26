@@ -40,3 +40,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 실데이터 — 원본 엑셀/실적 파일은 절대 커밋 금지(로컬·마스킹 보안 규칙).
+# (서버는 OPR_DATA_DIR 의 외부 경로에서 런타임 read 만 한다.)
+*.xlsx
+*.xlsm
+*.xls
+/data/

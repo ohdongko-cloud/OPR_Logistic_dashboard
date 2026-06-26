@@ -194,7 +194,7 @@ export function rollup(
 }
 
 /** 분류 매칭된(4키 모두 비공백) 칸반행만 — 대시보드 집계 대상. */
-function isClassified(k: KanbanRow): boolean {
+export function isClassified(k: KanbanRow): boolean {
   return !!(k.gender && k.newcarry && k.season && k.item);
 }
 

@@ -14,6 +14,9 @@ export * from "./dim-class";
 export * from "./logi-cost";
 export * from "./stage1-kanban";
 export * from "./stage2-aggregate";
+export * from "./agg-tree";
+export * from "./agg-api-types";
+export * from "./agg-columns";
 
 import { buildKanban, type EngineInput } from "./stage1-kanban";
 import { buildFactTree, type FactTree } from "./stage2-aggregate";

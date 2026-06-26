@@ -1,21 +1,22 @@
-import { ViewStub } from "@/components/view-stub";
+import { Suspense } from "react";
+
+import { EngineView } from "@/components/engine/engine-view";
 
 /**
  * ① 물류 핵심지표 (랜딩) — 시즌·아이템 엔진 드릴다운.
- * 설계문서 §2-A(25지표) · §3(5단계 드릴다운: 전체→성별→신상이월→시즌→아이템).
+ * 설계문서 §2-A(25지표) · §3(5단계 드릴다운: 전체→성별→신상이월→시즌→아이템→SKU).
+ *
+ * 엔진(src/lib/engine)은 엑셀 100% 검증 완료 → /api/agg 가 실파일 파싱·집계 트리 반환.
+ * useSearchParams(기간토글·필터) 사용 → Suspense 경계 필요.
  */
 export default function EnginePage() {
   return (
-    <ViewStub
-      title="① 물류 핵심지표"
-      subtitle="시즌·아이템 엔진 드릴다운 (성별 × 신상이월 × 시즌 × 아이템). 물류비·재고·체화·입출고."
-      source="R-005/006 ※대시보드(시즌-아이템) · 설계 §2-A / §3"
-      planned={[
-        "KPI 카드 5종 (물류비율·센터재고일수·판매배수·(−)재고·센터체화비중)",
-        "드릴다운 트리테이블 (메인 위젯 — 접었다 폈다, 동일 25컬럼셋)",
-        "기간 토글 연동(당월/누적) · 필터(성별·신상이월·시즌·아이템)",
-        "차트: 4대비용 도넛 · 체화 히트맵 · 재고흐름 워터폴",
-      ]}
-    />
+    <Suspense
+      fallback={
+        <div className="p-8 text-center text-sm text-zinc-400">로딩 중…</div>
+      }
+    >
+      <EngineView />
+    </Suspense>
   );
 }

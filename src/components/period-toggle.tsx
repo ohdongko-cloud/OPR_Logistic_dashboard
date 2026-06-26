@@ -1,14 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback } from "react";
 
 /**
  * 전역 기간 토글 (설계문서 §4-1: ●당월 ○누적).
  * 당월/누적은 99.91% 동형 → 같은 화면 + period 파라미터 교체.
- * 골격: 로컬 상태만(라우팅/쿼리 연동·값 교체는 다음 단계).
+ * URL `?period=month|cumulative` 와 동기화 → 엔진 뷰가 동일 파라미터로 refetch.
  */
 export function PeriodToggle() {
-  const [period, setPeriod] = useState<"month" | "cumulative">("month");
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const period = params.get("period") === "cumulative" ? "cumulative" : "month";
+
+  const setPeriod = useCallback(
+    (next: "month" | "cumulative") => {
+      const sp = new URLSearchParams(params.toString());
+      if (next === "month") sp.delete("period");
+      else sp.set("period", next);
+      const qs = sp.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [params, pathname, router],
+  );
 
   return (
     <div className="inline-flex rounded-md border border-zinc-300 text-sm">
