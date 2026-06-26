@@ -1,16 +1,53 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fafafa;
+  --background: #f4f5f7;
   --foreground: #18181b;
+
+  /* 레퍼런스 BI 톤 — 사이드바(짙은 차콜/네이비) */
+  --sidebar-bg: #1e293b; /* slate-800 */
+  --sidebar-bg-active: #2563eb; /* blue-600 하이라이트 */
+  --sidebar-fg: #cbd5e1; /* slate-300 */
+  --sidebar-fg-muted: #64748b; /* slate-500 */
+  --sidebar-fg-active: #ffffff;
+
+  /* 강조/상태 색 (셀 색상 코딩) */
+  --accent: #2563eb; /* 핵심수치 파랑 */
+  --good: #16a34a; /* 양호 초록 */
+  --bad: #dc2626; /* 위험 빨강 */
+
+  /* 테이블 톤(Excel風 조밀) */
+  --grid-line: #e5e7eb; /* 행 구분선 */
+  --grid-head: #f8fafc; /* 헤더 배경 */
+  --grid-hover: #eff6ff; /* 호버 행 하이라이트(연파랑) */
+  --grid-row-alt: #fafafa; /* 자식행 약한 배경 */
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
+  --color-sidebar: var(--sidebar-bg);
+  --color-sidebar-active: var(--sidebar-bg-active);
+  --color-sidebar-fg: var(--sidebar-fg);
+  --color-sidebar-fg-muted: var(--sidebar-fg-muted);
+
+  --color-accent: var(--accent);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+
+  --color-grid-line: var(--grid-line);
+  --color-grid-head: var(--grid-head);
+  --color-grid-hover: var(--grid-hover);
+  --color-grid-row-alt: var(--grid-row-alt);
 }
 
 body {
   font-family:
     ui-sans-serif, system-ui, "Segoe UI", "Malgun Gothic", Arial, sans-serif;
+}
+
+/* 모든 숫자열 = 등폭 숫자(Excel風 정렬감) */
+.tabnum {
+  font-variant-numeric: tabular-nums;
 }

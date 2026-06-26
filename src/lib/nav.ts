@@ -10,16 +10,26 @@ export type NavItem = {
   href: string;
   label: string;
   /** 설계문서상 뷰 식별(① ② ③) 또는 admin */
-  view: "engine" | "store" | "product" | "admin";
+  view: "engine" | "store" | "product" | "admin" | "home" | "upload";
+  /** 사이드바 아이콘(이모지 — 외부 의존 없이 가볍게). */
+  icon: string;
   /** 관리자 전용 여부(RBAC) */
   adminOnly?: boolean;
+  /** 미구현(스텁) 링크 — 사이드바에 흐리게 표시. */
+  stub?: boolean;
 };
 
+/**
+ * 좌측 사이드바 내비(레퍼런스 BI 양식).
+ * 대시보드 · 데이터 업로드 · 물류 핵심지표(활성) · 매장 SCM · 상품 SCM · 관리자.
+ */
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/engine", label: "① 물류 핵심지표", view: "engine" },
-  { href: "/store", label: "② 매장 SCM", view: "store" },
-  { href: "/product", label: "③ 상품 SCM", view: "product" },
-  { href: "/admin", label: "관리자", view: "admin", adminOnly: true },
+  { href: "/", label: "대시보드", view: "home", icon: "▦", stub: true },
+  { href: "/upload", label: "데이터 업로드", view: "upload", icon: "↥", stub: true },
+  { href: "/engine", label: "물류 핵심지표", view: "engine", icon: "◧" },
+  { href: "/store", label: "매장 SCM", view: "store", icon: "▤", stub: true },
+  { href: "/product", label: "상품 SCM", view: "product", icon: "◫", stub: true },
+  { href: "/admin", label: "관리자", view: "admin", icon: "⚙", adminOnly: true, stub: true },
 ];
 
 /** 랜딩 경로(설계 §1: 엔진 드릴다운). */

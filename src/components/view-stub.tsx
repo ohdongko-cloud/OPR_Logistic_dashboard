@@ -1,6 +1,11 @@
+import { Suspense } from "react";
+
+import { Topbar } from "@/components/shell/topbar";
+
 /**
  * 화면 스텁 — 골격 단계의 빈 뷰 자리.
  * 실제 위젯(KPI 카드·드릴다운 테이블·차트)은 아키텍처 확정 후 다음 단계 구현.
+ * 레퍼런스 BI 셸과 동일하게 Topbar(타이틀·기간칩·로그아웃)를 얹는다.
  */
 export function ViewStub({
   title,
@@ -14,11 +19,12 @@ export function ViewStub({
   planned: string[];
 }) {
   return (
-    <section className="mx-auto max-w-4xl">
-      <h1 className="text-xl font-semibold text-zinc-900">{title}</h1>
-      <p className="mt-1 text-sm text-zinc-600">{subtitle}</p>
-
-      <div className="mt-6 rounded-lg border border-dashed border-zinc-300 bg-white p-6">
+    <>
+      <Suspense fallback={<div className="h-[57px] border-b border-zinc-200 bg-white" />}>
+        <Topbar title={title} subtitle={subtitle} />
+      </Suspense>
+      <section className="flex-1 overflow-auto p-5">
+        <div className="rounded-lg border border-dashed border-zinc-300 bg-white p-6">
         <p className="text-sm font-medium text-zinc-500">
           🏗 골격(스텁) — 본문 위젯 미구현
         </p>
@@ -31,7 +37,8 @@ export function ViewStub({
             <li key={p}>{p}</li>
           ))}
         </ul>
-      </div>
-    </section>
+        </div>
+      </section>
+    </>
   );
 }
