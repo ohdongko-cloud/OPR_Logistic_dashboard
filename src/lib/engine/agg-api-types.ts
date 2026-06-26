@@ -38,6 +38,8 @@ export interface AggResponse {
     skuCount: number;
     nodeCount: number;
     builtAtMs: number;
+    /** 데이터 출처(db=CURRENT 스냅샷 / livefile=라이브파일 폴백). 선택. */
+    source?: "db" | "livefile";
   };
 }
 

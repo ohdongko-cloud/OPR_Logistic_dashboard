@@ -1,8 +1,9 @@
 /**
  * GET /api/agg — 엔진 드릴다운 트리(① 물류 핵심지표).
  *
- * Neon 미구성 단계 → 서버가 실파일을 파싱·runEngine·트리화하여 반환(메모리 캐시).
- * 엔진 출력은 이미 엑셀 100% 검증(engine-realfile.test) → 그대로 신뢰.
+ * 데이터 출처: CURRENT FactKanban 스냅샷이 있으면 **DB**, 없으면 라이브파일 폴백
+ *   (resolveKanban). 두 경로 모두 동일 KanbanRow[] → 응답 계약(tree·필드) 불변.
+ *   엔진 출력은 이미 엑셀 100% 검증(engine-realfile.test) → 그대로 신뢰.
  *
  * 파라미터:
  *   period_type = 당월(기본) | 누적  (또는 MONTH|CUMULATIVE)
@@ -22,7 +23,7 @@ import {
   type AggResponse,
   type DrilldownFilter,
 } from "@/lib/engine";
-import { EngineDataError, getKanban } from "@/lib/server/engine-cache";
+import { EngineDataError, resolveKanban } from "@/lib/server/kanban-source";
 
 export const runtime = "nodejs"; // SheetJS·fs = Node 런타임
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ function pick(v: string | null): string | undefined {
   return s ? s : undefined;
 }
 
-export function GET(req: Request): NextResponse {
+export async function GET(req: Request): Promise<NextResponse> {
   const url = new URL(req.url);
   const period = parsePeriod(url.searchParams.get("period_type"));
   const filter: DrilldownFilter = {
@@ -42,9 +43,9 @@ export function GET(req: Request): NextResponse {
     item: pick(url.searchParams.get("item")),
   };
 
-  let kanban;
+  let resolved;
   try {
-    kanban = getKanban(period);
+    resolved = await resolveKanban(period);
   } catch (e) {
     if (e instanceof EngineDataError) {
       return NextResponse.json(
@@ -59,6 +60,7 @@ export function GET(req: Request): NextResponse {
       { status: 500 },
     );
   }
+  const { kanban } = resolved;
 
   const t0 = performance.now();
   const tree = buildDrilldownTree(kanban, filter);
@@ -74,6 +76,8 @@ export function GET(req: Request): NextResponse {
       skuCount: kanban.length,
       nodeCount,
       builtAtMs: Math.round(performance.now() - t0),
+      // 진단용(실수치 아님) — UI 무관, 출처 가시화.
+      source: resolved.source,
     },
   };
   return NextResponse.json(body, { headers: { "cache-control": "no-store" } });

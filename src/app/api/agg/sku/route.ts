@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 
 import { parsePeriod, skuDetailsFor, type FactKey } from "@/lib/engine";
-import { EngineDataError, getKanban } from "@/lib/server/engine-cache";
+import { EngineDataError, resolveKanban } from "@/lib/server/kanban-source";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ function req(v: string | null): string {
   return (v ?? "").trim();
 }
 
-export function GET(request: Request): NextResponse {
+export async function GET(request: Request): Promise<NextResponse> {
   const url = new URL(request.url);
   const period = parsePeriod(url.searchParams.get("period_type"));
   const key: FactKey = {
@@ -35,7 +35,7 @@ export function GET(request: Request): NextResponse {
 
   let kanban;
   try {
-    kanban = getKanban(period);
+    ({ kanban } = await resolveKanban(period));
   } catch (e) {
     if (e instanceof EngineDataError) {
       return NextResponse.json(

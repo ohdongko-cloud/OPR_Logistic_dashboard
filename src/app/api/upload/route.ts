@@ -1,22 +1,44 @@
 /**
- * POST /api/upload — RAW .xlsx 멀티 업로드 → 검증·파싱·스테이징.
+ * POST /api/upload — RAW .xlsx 멀티 업로드 → 검증·파싱·스테이징·적재.
  *
  * 근거: 아키텍처 §2 파이프라인 · §5-1 "POST /api/upload (input MANAGE)".
  *
  * 흐름: requireTab(input, MANAGE) → multipart 수신 → ingestFiles(검증·파싱·감지)
- *       → [DB 구성 시] Snapshot+RawRow 적재 / [미구성 시] 검증 리포트만 반환.
+ *       → [DB 구성 시] persistSnapshot(STAGE→TRANSFORM→PUBLISH) / [미구성 시] 검증 리포트만.
  *
- * ⚠️ 현 단계 Neon 미구성 → DB 적재(STAGE/TRANSFORM/PUBLISH)는 보류.
- *    파싱·검증까지 동작하며 리포트(시트/행수/누락)를 반환한다.
- *    DB stage 는 getPrisma() 가 null 이 아닐 때만 활성(다음 단계에서 구현).
+ * period 메타: 폼 필드 period_type(MONTH|CUMULATIVE)·period_end(YYYY-MM-DD) 수신.
+ *   미상이면 당월 기본 + 오늘 기준 기간(MVP — 추후 시트 메타 자동추출로 강화).
  */
 
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { AuthzError, effectiveLevel, type AuthzUser } from "@/lib/authz";
+import { parsePeriod, type PeriodType } from "@/lib/engine";
 import { ingestFiles, type UploadFileInput } from "@/lib/ingest";
 import { getPrisma } from "@/lib/prisma";
+import { persistSnapshot } from "@/lib/server/persist";
+
+/** period → 엔진 앵커(engine-cache 와 동일 — spec 부록C). */
+const ANCHORS: Record<PeriodType, { salesDays: number; monthDays: number; factor: number }> = {
+  MONTH: { salesDays: 21, monthDays: 30, factor: 1.22 },
+  CUMULATIVE: { salesDays: 172, monthDays: 181, factor: 1.02 },
+};
+
+/** period 기간(start/end) 산출 — 폼 period_end 우선, 없으면 오늘. */
+function periodRange(
+  periodType: PeriodType,
+  periodEndStr: string | null,
+): { periodStart: Date; periodEnd: Date } {
+  const end = periodEndStr ? new Date(periodEndStr) : new Date();
+  const validEnd = Number.isNaN(end.getTime()) ? new Date() : end;
+  // start: 당월=월초, 누적=연초(근사 — 메타 자동추출 전 합리적 기본).
+  const start =
+    periodType === "CUMULATIVE"
+      ? new Date(Date.UTC(validEnd.getUTCFullYear(), 0, 1))
+      : new Date(Date.UTC(validEnd.getUTCFullYear(), validEnd.getUTCMonth(), 1));
+  return { periodStart: start, periodEnd: validEnd };
+}
 
 export const runtime = "nodejs"; // SheetJS = Node 런타임 필요(엣지 X)
 export const dynamic = "force-dynamic";
@@ -58,6 +80,7 @@ async function guard(): Promise<AuthzUser | NextResponse> {
 export async function POST(req: Request): Promise<NextResponse> {
   const guarded = await guard();
   if (guarded instanceof NextResponse) return guarded;
+  const uploader = guarded;
 
   // 1) multipart 파싱
   let form: FormData;
@@ -112,29 +135,70 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  // 5) DB 적재 — Neon 구성 시에만. 미구성이면 staged=false 로 리포트만.
+  // 5) DB 적재 — Neon 구성 시 STAGE→TRANSFORM→PUBLISH. 미구성이면 리포트만.
   const prisma = getPrisma();
   const dbReady = prisma !== null;
 
-  // (DB stage/transform/publish 는 다음 단계 — 여기선 자리만 명시)
-  // if (dbReady) { ... Snapshot 생성 → RawRow createMany → TRANSFORM → PUBLISH ... }
+  const reportBody = {
+    totalRows: result.totalRows,
+    sheetSet: result.sheetSet,
+    files: result.files,
+    recordCounts: Object.fromEntries(
+      Object.entries(result.records).map(([k, v]) => [k, v?.length ?? 0]),
+    ),
+  };
 
-  return NextResponse.json(
-    {
-      ok: true,
-      staged: false, // DB 적재 보류(Neon 미구성). true 는 DB stage 구현 후.
-      dbReady,
-      totalRows: result.totalRows,
-      sheetSet: result.sheetSet,
-      // 시트별 행수 리포트(실데이터 값은 미포함 — 메타만).
-      files: result.files,
-      recordCounts: Object.fromEntries(
-        Object.entries(result.records).map(([k, v]) => [k, v?.length ?? 0]),
-      ),
-      note: dbReady
-        ? "DB 적재 로직 미구현(다음 단계). 검증·파싱만 완료."
-        : "Neon 미구성 — DB 적재 보류. 검증·파싱 리포트만 반환.",
-    },
-    { status: 200 },
+  if (!dbReady || !prisma) {
+    return NextResponse.json(
+      {
+        ok: true,
+        staged: false,
+        dbReady: false,
+        ...reportBody,
+        note: "Neon 미구성 — DB 적재 보류. 검증·파싱 리포트만 반환.",
+      },
+      { status: 200 },
+    );
+  }
+
+  // period 메타(폼 → 기본값).
+  const periodType = parsePeriod(form.get("period_type") as string | null);
+  const { periodStart, periodEnd } = periodRange(
+    periodType,
+    (form.get("period_end") as string | null) ?? null,
   );
+
+  try {
+    const persisted = await persistSnapshot({
+      prisma,
+      uploadedById: uploader.id!, // guard 통과 = 인증된 user(id 존재)
+      periodType,
+      periodStart,
+      periodEnd,
+      records: result.records,
+      anchors: ANCHORS[periodType],
+    });
+
+    return NextResponse.json(
+      {
+        ok: true,
+        staged: true,
+        dbReady: true,
+        snapshotId: persisted.snapshotId,
+        status: persisted.status,
+        supersededId: persisted.supersededId,
+        factRows: persisted.factRowCount,
+        ...reportBody,
+        note: "적재 완료 — CURRENT 스냅샷 갱신.",
+      },
+      { status: 200 },
+    );
+  } catch (e) {
+    // 상세는 서버 로그·IngestLog, 클라엔 안전 메시지.
+    console.error("[upload] persist failed", e);
+    return NextResponse.json(
+      { ok: false, error: "persist_error", detail: "적재 처리 중 오류가 발생했습니다." },
+      { status: 500 },
+    );
+  }
 }
