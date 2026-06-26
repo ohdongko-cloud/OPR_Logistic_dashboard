@@ -12,3 +12,5 @@ export * from "./detect";
 export * from "./parse-workbook";
 export * from "./validate-sheetset";
 export * from "./ingest-files";
+export * from "./detect-file-kind";
+export * from "./extract-anchors";

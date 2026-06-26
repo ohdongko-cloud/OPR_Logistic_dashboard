@@ -1,49 +1,92 @@
 /**
- * POST /api/upload — RAW .xlsx 멀티 업로드 → 검증·파싱·스테이징·적재.
+ * POST /api/upload — SAP RAW .xlsx 업로드 → 검증·파싱 → 새 CURRENT 스냅샷 적재.
  *
- * 근거: 아키텍처 §2 파이프라인 · §5-1 "POST /api/upload (input MANAGE)".
+ * 근거: 아키텍처 §2 파이프라인 · §5-1 "POST /api/upload (input MANAGE)" ·
+ *       prisma/seed.ts(적재 레퍼런스 — 그대로 이식).
  *
- * 흐름: requireTab(input, MANAGE) → multipart 수신 → ingestFiles(검증·파싱·감지)
- *       → [DB 구성 시] persistSnapshot(STAGE→TRANSFORM→PUBLISH) / [미구성 시] 검증 리포트만.
+ * 흐름:
+ *   guard(input MANAGE) → multipart 수신 → 파일별 종류 자동판별(아이템/매장 · 폼 보조)
+ *   → 아이템: ingestFiles → persistSnapshot(ITEM) + persistProductSnapshot(PRODUCT)
+ *     매장:   ingestStoreFile → persistStoreSnapshot(STORE)
+ *   → 멱등 PUBLISH(이전 CURRENT → SUPERSEDED). 응답 = 적재 요약.
  *
- * period 메타: 폼 필드 period_type(MONTH|CUMULATIVE)·period_end(YYYY-MM-DD) 수신.
- *   미상이면 당월 기본 + 오늘 기준 기간(MVP — 추후 시트 메타 자동추출로 강화).
+ * 폼 필드(모두 선택 — 미상이면 자동/기본):
+ *   kind          : item | store      (자동판별 강제 오버라이드)
+ *   period_type   : MONTH | CUMULATIVE (자동판별/기본)
+ *   period_start  : YYYY-MM-DD         (귀속 기간 시작)
+ *   period_end    : YYYY-MM-DD         (귀속 기간 끝)
+ *   sales_days    : number             (앵커 — 칸반 자동추출 실패 시 수동)
+ *   month_days    : number
+ *   factor        : number
+ *
+ * 앵커: 아이템 파일은 칸반 D1/E1/F1(당월)·E1/F1/G1(누적)에서 자동추출. 실패 시 기본값.
+ *   폼에 sales_days/month_days/factor 가 모두 오면 그 값으로 강제(자동추출 우선보다 명시 우선).
  */
 
 import { NextResponse } from "next/server";
 
-import { auth } from "@/auth";
 import { AuthzError, effectiveLevel, type AuthzUser } from "@/lib/authz";
-import { parsePeriod, type PeriodType } from "@/lib/engine";
-import { ingestFiles, type UploadFileInput } from "@/lib/ingest";
+import { auth } from "@/auth";
+import {
+  parsePeriod,
+  type PeriodAnchors,
+  type PeriodType,
+} from "@/lib/engine";
+import { ingestStoreFile, MONTH_STORE_PARAMS } from "@/lib/engine-store";
+import {
+  detectFileKind,
+  extractAnchors,
+  ingestFiles,
+  type UploadFileInput,
+} from "@/lib/ingest";
 import { getPrisma } from "@/lib/prisma";
+import { persistProductSnapshot } from "@/lib/server/persist-product";
 import { persistSnapshot } from "@/lib/server/persist";
-
-/** period → 엔진 앵커(engine-cache 와 동일 — spec 부록C). */
-const ANCHORS: Record<PeriodType, { salesDays: number; monthDays: number; factor: number }> = {
-  MONTH: { salesDays: 21, monthDays: 30, factor: 1.22 },
-  CUMULATIVE: { salesDays: 172, monthDays: 181, factor: 1.02 },
-};
-
-/** period 기간(start/end) 산출 — 폼 period_end 우선, 없으면 오늘. */
-function periodRange(
-  periodType: PeriodType,
-  periodEndStr: string | null,
-): { periodStart: Date; periodEnd: Date } {
-  const end = periodEndStr ? new Date(periodEndStr) : new Date();
-  const validEnd = Number.isNaN(end.getTime()) ? new Date() : end;
-  // start: 당월=월초, 누적=연초(근사 — 메타 자동추출 전 합리적 기본).
-  const start =
-    periodType === "CUMULATIVE"
-      ? new Date(Date.UTC(validEnd.getUTCFullYear(), 0, 1))
-      : new Date(Date.UTC(validEnd.getUTCFullYear(), validEnd.getUTCMonth(), 1));
-  return { periodStart: start, periodEnd: validEnd };
-}
+import { persistStoreSnapshot } from "@/lib/server/persist-store";
 
 export const runtime = "nodejs"; // SheetJS = Node 런타임 필요(엣지 X)
 export const dynamic = "force-dynamic";
 
-/** 인가: input MANAGE. 인증 미구성(provider 없음) 단계에서도 안전하게 차단. */
+/** period 기간(start/end) 산출 — 폼 우선, 없으면 합리적 기본(당월=월초~말·누적=연초~). */
+function resolvePeriodRange(
+  periodType: PeriodType,
+  startStr: string | null,
+  endStr: string | null,
+): { periodStart: Date; periodEnd: Date } {
+  const parse = (s: string | null): Date | null => {
+    if (!s) return null;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const end = parse(endStr) ?? new Date();
+  const explicitStart = parse(startStr);
+  if (explicitStart) return { periodStart: explicitStart, periodEnd: end };
+  // start 미상 → 당월=월초, 누적=연초.
+  const start =
+    periodType === "CUMULATIVE"
+      ? new Date(Date.UTC(end.getUTCFullYear(), 0, 1))
+      : new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
+  return { periodStart: start, periodEnd: end };
+}
+
+/** 폼 앵커 오버라이드(3값 모두 유효할 때만). 없으면 null → 자동추출 사용. */
+function formAnchors(form: FormData): PeriodAnchors | null {
+  const num = (k: string): number | null => {
+    const raw = form.get(k);
+    if (raw === null) return null;
+    const n = Number(String(raw).trim());
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const salesDays = num("sales_days");
+  const monthDays = num("month_days");
+  const factor = num("factor");
+  if (salesDays !== null && monthDays !== null && factor !== null) {
+    return { salesDays, monthDays, factor };
+  }
+  return null;
+}
+
+/** 인가: input MANAGE. 인증 미구성 단계에서도 안전하게 차단. */
 async function guard(): Promise<AuthzUser | NextResponse> {
   try {
     const session = await auth();
@@ -69,7 +112,6 @@ async function guard(): Promise<AuthzUser | NextResponse> {
         { status: e.status },
       );
     }
-    // 인증 시스템 미구성 등 → 안전하게 401(클라엔 상세 누출 금지).
     return NextResponse.json(
       { ok: false, error: "unauthorized", detail: "인증을 확인할 수 없습니다." },
       { status: 401 },
@@ -77,10 +119,38 @@ async function guard(): Promise<AuthzUser | NextResponse> {
   }
 }
 
+interface LoadedFile {
+  name: string;
+  size: number;
+  bytes: Uint8Array;
+}
+
+/** 적재 결과 1건(파일/종류별). */
+interface PersistOutcome {
+  file: string;
+  kind: "item" | "store";
+  fileType: "ITEM" | "PRODUCT" | "STORE";
+  periodType: PeriodType;
+  snapshotId: string;
+  status: string;
+  factRows: number;
+  supersededId: string | null;
+  /** 앵커 출처(아이템만) */
+  anchorSource?: "file" | "default";
+  anchors?: PeriodAnchors;
+}
+
 export async function POST(req: Request): Promise<NextResponse> {
   const guarded = await guard();
   if (guarded instanceof NextResponse) return guarded;
   const uploader = guarded;
+
+  if (!uploader.id) {
+    return NextResponse.json(
+      { ok: false, error: "unauthorized", detail: "사용자 식별자가 없습니다." },
+      { status: 401 },
+    );
+  }
 
   // 1) multipart 파싱
   let form: FormData;
@@ -102,103 +172,176 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 
   // 2) 바이트 로드
-  const inputs: UploadFileInput[] = [];
+  const loaded: LoadedFile[] = [];
   for (const f of fileEntries) {
     const buf = new Uint8Array(await f.arrayBuffer());
-    inputs.push({ name: f.name, size: f.size, bytes: buf });
+    loaded.push({ name: f.name, size: f.size, bytes: buf });
   }
 
-  // 3) 검증·파싱·감지·스테이징(메모리)
-  let result;
-  try {
-    result = ingestFiles(inputs);
-  } catch (e) {
-    // 상세는 서버 로그, 클라엔 안전 메시지(에러 누출 방지).
-    console.error("[upload] ingest failed", e);
-    return NextResponse.json(
-      { ok: false, error: "ingest_error", detail: "파일 처리 중 오류가 발생했습니다." },
-      { status: 422 },
-    );
-  }
-
-  // 4) 검증 실패 → 422 + 리포트(어느 시트/헤더 누락인지).
-  if (!result.ok) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "validation_failed",
-        blockedReason: result.blockedReason,
-        sheetSet: result.sheetSet,
-        files: result.files,
-      },
-      { status: 422 },
-    );
-  }
-
-  // 5) DB 적재 — Neon 구성 시 STAGE→TRANSFORM→PUBLISH. 미구성이면 리포트만.
+  // 3) DB 준비 확인 — 미구성이면 적재 보류(검증 리포트만).
   const prisma = getPrisma();
-  const dbReady = prisma !== null;
-
-  const reportBody = {
-    totalRows: result.totalRows,
-    sheetSet: result.sheetSet,
-    files: result.files,
-    recordCounts: Object.fromEntries(
-      Object.entries(result.records).map(([k, v]) => [k, v?.length ?? 0]),
-    ),
-  };
-
-  if (!dbReady || !prisma) {
+  if (!prisma) {
+    // 검증만 수행해 리포트.
     return NextResponse.json(
       {
         ok: true,
         staged: false,
         dbReady: false,
-        ...reportBody,
-        note: "Neon 미구성 — DB 적재 보류. 검증·파싱 리포트만 반환.",
+        note: "Neon 미구성 — DB 적재 보류.",
       },
       { status: 200 },
     );
   }
 
-  // period 메타(폼 → 기본값).
-  const periodType = parsePeriod(form.get("period_type") as string | null);
-  const { periodStart, periodEnd } = periodRange(
-    periodType,
-    (form.get("period_end") as string | null) ?? null,
+  // 4) 폼 메타(오버라이드).
+  const kindOverride = (form.get("kind") as string | null)?.trim().toLowerCase() ?? null;
+  const periodOverrideRaw = form.get("period_type") as string | null;
+  const startStr = (form.get("period_start") as string | null) ?? null;
+  const endStr = (form.get("period_end") as string | null) ?? null;
+  const anchorOverride = formAnchors(form);
+
+  const outcomes: PersistOutcome[] = [];
+  const errors: Array<{ file: string; detail: string }> = [];
+
+  // 5) 파일별 종류 판별 → 적재.
+  for (const lf of loaded) {
+    try {
+      const detected = detectFileKind(lf.bytes);
+      const kind =
+        kindOverride === "item" || kindOverride === "store"
+          ? (kindOverride as "item" | "store")
+          : detected.kind;
+
+      if (kind === "unknown") {
+        errors.push({
+          file: lf.name,
+          detail: "파일 종류를 판별할 수 없습니다(아이템/매장 선택 후 재시도).",
+        });
+        continue;
+      }
+
+      // 기간: 폼 오버라이드 > 자동판별 > 기본(MONTH).
+      const periodType: PeriodType = periodOverrideRaw
+        ? parsePeriod(periodOverrideRaw)
+        : (detected.period ?? "MONTH");
+
+      const { periodStart, periodEnd } = resolvePeriodRange(periodType, startStr, endStr);
+
+      if (kind === "store") {
+        // ── 매장 파일 → ingestStore → persistStoreSnapshot(STORE) ──
+        const sing = ingestStoreFile(lf.bytes);
+        if (!sing.ok) {
+          errors.push({ file: lf.name, detail: sing.blockedReason ?? "매장 검증 실패" });
+          continue;
+        }
+        const sres = await persistStoreSnapshot({
+          prisma,
+          uploadedById: uploader.id,
+          periodType: periodType === "CUMULATIVE" ? "CUMULATIVE" : "MONTH",
+          periodStart,
+          periodEnd,
+          raw: sing.raw,
+          roster: sing.roster,
+          curation: sing.curation,
+          errors: sing.errors,
+          params: MONTH_STORE_PARAMS,
+        });
+        outcomes.push({
+          file: lf.name,
+          kind: "store",
+          fileType: "STORE",
+          periodType,
+          snapshotId: sres.snapshotId,
+          status: sres.status,
+          factRows: sres.factRowCount,
+          supersededId: sres.supersededId,
+        });
+        continue;
+      }
+
+      // ── 아이템 파일 → ingestFiles → persistSnapshot(ITEM) + persistProductSnapshot(PRODUCT) ──
+      const ingest = ingestFiles([
+        { name: lf.name, size: lf.size, bytes: lf.bytes } satisfies UploadFileInput,
+      ]);
+      if (!ingest.ok) {
+        errors.push({
+          file: lf.name,
+          detail: ingest.blockedReason ?? "아이템 검증 실패",
+        });
+        continue;
+      }
+
+      // 앵커: 폼 오버라이드 > 칸반 자동추출 > 기본.
+      const extracted = extractAnchors(lf.bytes, periodType);
+      const anchors = anchorOverride ?? extracted.anchors;
+      const anchorSource: "file" | "default" = anchorOverride
+        ? "default"
+        : extracted.source;
+
+      const ires = await persistSnapshot({
+        prisma,
+        uploadedById: uploader.id,
+        periodType,
+        periodStart,
+        periodEnd,
+        records: ingest.records,
+        anchors,
+      });
+      outcomes.push({
+        file: lf.name,
+        kind: "item",
+        fileType: "ITEM",
+        periodType,
+        snapshotId: ires.snapshotId,
+        status: ires.status,
+        factRows: ires.factRowCount,
+        supersededId: ires.supersededId,
+        anchorSource,
+        anchors,
+      });
+
+      // 상품(PRODUCT) 동시 갱신 — 동일 records 재사용(브랜드×시즌 grain).
+      const pres = await persistProductSnapshot({
+        prisma,
+        uploadedById: uploader.id,
+        periodType: periodType === "CUMULATIVE" ? "CUMULATIVE" : "MONTH",
+        periodStart,
+        periodEnd,
+        records: ingest.records,
+      });
+      outcomes.push({
+        file: lf.name,
+        kind: "item",
+        fileType: "PRODUCT",
+        periodType,
+        snapshotId: pres.snapshotId,
+        status: pres.status,
+        factRows: pres.factRowCount,
+        supersededId: pres.supersededId,
+      });
+    } catch (e) {
+      // 상세는 서버 로그·IngestLog, 클라엔 안전 메시지(에러 누출 방지).
+      console.error("[upload] persist failed", lf.name, e);
+      errors.push({ file: lf.name, detail: "적재 처리 중 오류가 발생했습니다." });
+    }
+  }
+
+  // 6) 응답 — 부분 성공 허용(파일별 결과·오류 모두 반환).
+  const anyLoaded = outcomes.length > 0;
+  return NextResponse.json(
+    {
+      ok: errors.length === 0 && anyLoaded,
+      staged: anyLoaded,
+      dbReady: true,
+      uploadedBy: uploader.email ?? null,
+      outcomes,
+      errors,
+      note: anyLoaded
+        ? errors.length === 0
+          ? "적재 완료 — CURRENT 스냅샷 갱신."
+          : "일부 파일만 적재됨(오류 확인)."
+        : "적재된 파일이 없습니다(오류 확인).",
+    },
+    { status: anyLoaded ? 200 : 422 },
   );
-
-  try {
-    const persisted = await persistSnapshot({
-      prisma,
-      uploadedById: uploader.id!, // guard 통과 = 인증된 user(id 존재)
-      periodType,
-      periodStart,
-      periodEnd,
-      records: result.records,
-      anchors: ANCHORS[periodType],
-    });
-
-    return NextResponse.json(
-      {
-        ok: true,
-        staged: true,
-        dbReady: true,
-        snapshotId: persisted.snapshotId,
-        status: persisted.status,
-        supersededId: persisted.supersededId,
-        factRows: persisted.factRowCount,
-        ...reportBody,
-        note: "적재 완료 — CURRENT 스냅샷 갱신.",
-      },
-      { status: 200 },
-    );
-  } catch (e) {
-    // 상세는 서버 로그·IngestLog, 클라엔 안전 메시지.
-    console.error("[upload] persist failed", e);
-    return NextResponse.json(
-      { ok: false, error: "persist_error", detail: "적재 처리 중 오류가 발생했습니다." },
-      { status: 500 },
-    );
-  }
 }

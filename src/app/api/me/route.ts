@@ -41,6 +41,8 @@ export async function GET(): Promise<NextResponse> {
       caps,
       /** input 탭 INPUT 이상 = 입력면 편집 가능. */
       canInput: caps.input === "INPUT" || caps.input === "MANAGE",
+      /** input 탭 MANAGE = 데이터 업로드 가능(백데이터 적재). */
+      canUpload: caps.input === "MANAGE",
     },
     { headers: { "cache-control": "no-store" } },
   );
