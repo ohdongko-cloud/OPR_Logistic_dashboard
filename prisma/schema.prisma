@@ -328,18 +328,39 @@ model FactStore {
   @@map("fact_store")
 }
 
+// ── 상품③ 팩트 (snapshot × 브랜드(구매그룹코드) × 시즌, 자동 6 데이터필드) ──────────
+// 근거: 02_파일분석/상품SCM_뷰_스펙.md(§2 필드출처·§3 grain=구매그룹 F×시즌) ·
+//        product-engine-realfile.test(아이템 엔진 전체합과 측정식 동치 검증).
+// grain = 브랜드코드(구매그룹 F) × 시즌. 자동 6 데이터필드 = NOT NULL DEFAULT 0(파생은 복원 시 재계산).
+// ⚠️ 자동불가(일자·리드타임 8필드)·수기(정보정확도·P별적합도·비고 3필드)는 본 테이블 밖
+//    (일자=원천부재 / 수기=Annotation 모델). 가짜값 적재 금지.
+// ⚠️ 레거시 컬럼(skuKey·gender·item·mSalesCum·mInCum·mOutCum)은 init 스키마 자리 — 보존(헌장 삭제금지).
 model FactProductCum {
   id         String   @id @default(cuid())
   snapshotId String
   snapshot   Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-  skuKey     String
-  gender     String?
-  season     String?
-  item       String?
-  mSalesCum  Decimal  @db.Decimal(18, 2)
-  mInCum     Decimal  @db.Decimal(18, 2)
-  mOutCum    Decimal  @db.Decimal(18, 2)
 
+  // ── 상품 grain(브랜드코드 × 시즌) ──
+  brandCode String  @default("") // 구매그룹(Now:상품) F — 브랜드 조인키(마스킹 대상)
+  season    String? // 시즌(봄/여름/가을/겨울/공통). 브랜드 소계·전체행은 NULL/""
+
+  // ── 자동 6 데이터필드(SUMIFS 동치 — 아이템 엔진과 측정식 동일) ──
+  mInQty   Decimal @default(0) @db.Decimal(18, 2) // 입고량 ← 센터입출고 I(벤더입고량)
+  mInvQty  Decimal @default(0) @db.Decimal(18, 2) // 재고량 ← 물류재고 H(재고량)
+  mOutQty  Decimal @default(0) @db.Decimal(18, 2) // 누적출고량 ← 센터입출고 M(점간출고량)
+  mSaleQty Decimal @default(0) @db.Decimal(18, 2) // 누적판매량 ← 매출상세 J(판매수량)
+  mSalesAmt Decimal @default(0) @db.Decimal(18, 2) // 실매출액 ← 매출상세 H (매총율 분모)
+  mCogs    Decimal @default(0) @db.Decimal(18, 2) // 총매출원가 ← 매출상세 I (매총율 분자)
+
+  // ── 레거시(init 스키마 자리 — 상품 엔진 미사용. 삭제금지·하위호환). ──
+  skuKey    String  @default("")
+  gender    String?
+  item      String?
+  mSalesCum Decimal @default(0) @db.Decimal(18, 2)
+  mInCum    Decimal @default(0) @db.Decimal(18, 2)
+  mOutCum   Decimal @default(0) @db.Decimal(18, 2)
+
+  @@index([snapshotId, brandCode])
   @@index([snapshotId, skuKey])
   @@map("fact_product_cum")
 }
