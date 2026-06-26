@@ -31,6 +31,19 @@ export const MONTH_ANCHORS: PeriodAnchors = {
   factor: 1.22,
 };
 
+/** 누적 기본 앵커(실파일 칸반 E1=172·F1=181·G1=1.02 실측 — 시트참조 동형, 셀 시프트). */
+export const CUMULATIVE_ANCHORS: PeriodAnchors = {
+  salesDays: 172,
+  monthDays: 181,
+  factor: 1.02,
+};
+
+/** PeriodType → 기본 앵커. */
+export const DEFAULT_ANCHORS: Record<PeriodType, PeriodAnchors> = {
+  MONTH: MONTH_ANCHORS,
+  CUMULATIVE: CUMULATIVE_ANCHORS,
+};
+
 /**
  * 4키 — 대시보드 SUMIFS 집계 차원.
  *   gender   ← 칸반 CB(=VLOOKUP 대구분→대조합)  대시보드 A
