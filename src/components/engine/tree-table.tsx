@@ -2,6 +2,12 @@
 
 import { useMemo, useState } from "react";
 
+import {
+  compareToTarget,
+  nodeOverlayFor,
+  type AnnotationOverlay,
+  type NodeOverlay,
+} from "@/lib/annotations";
 import { isCritical, type AggColumn, type TreeNode } from "@/lib/engine";
 import { fmtDays, fmtEok, fmtNum, fmtPct, fmtQty } from "@/lib/format";
 
@@ -97,10 +103,18 @@ export function TreeTable({
   root,
   query,
   onLeafClick,
+  overlay,
+  canInput,
+  onEditNode,
 }: {
   root: TreeNode;
   query?: string;
   onLeafClick: (node: TreeNode) => void;
+  /** 주석 오버레이(목표·전년·비고) — 노드별 ⓘ·목표대비 표시. */
+  overlay?: AnnotationOverlay;
+  /** INPUT 권한 — 노드별 ✎ 편집 진입 노출. */
+  canInput?: boolean;
+  onEditNode?: (node: TreeNode) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([root.id]));
   const [sortField, setSortField] = useState<keyof TreeNode["metrics"] | null>(null);
@@ -195,6 +209,12 @@ export function TreeTable({
                   {g.title}
                 </th>
               ))}
+              <th
+                rowSpan={2}
+                className="border-b border-l border-zinc-200 px-2 py-1 text-center align-bottom font-semibold"
+              >
+                목표·비고
+              </th>
             </tr>
             {/* 컬럼 헤더행(정렬) */}
             <tr className="bg-grid-head text-[11px] text-zinc-500">
@@ -238,11 +258,14 @@ export function TreeTable({
                 expanded={effectiveExpanded.has(node.id)}
                 onToggle={() => toggle(node.id)}
                 onLeafClick={() => onLeafClick(node)}
+                ov={overlay ? nodeOverlayFor(overlay, node.key) : undefined}
+                canInput={canInput}
+                onEdit={onEditNode ? () => onEditNode(node) : undefined}
               />
             ))}
             {rows.length <= 1 && query && (
               <tr>
-                <td colSpan={FLAT_COLS.length + 1} className="px-3 py-6 text-center text-[12px] text-zinc-400">
+                <td colSpan={FLAT_COLS.length + 2} className="px-3 py-6 text-center text-[12px] text-zinc-400">
                   &ldquo;{query}&rdquo; 와 일치하는 행이 없습니다.
                 </td>
               </tr>
@@ -277,12 +300,18 @@ function TreeRow({
   expanded,
   onToggle,
   onLeafClick,
+  ov,
+  canInput,
+  onEdit,
 }: {
   node: TreeNode;
   depth: number;
   expanded: boolean;
   onToggle: () => void;
   onLeafClick: () => void;
+  ov?: NodeOverlay;
+  canInput?: boolean;
+  onEdit?: () => void;
 }) {
   const hasChildren = node.children.length > 0;
   const isRoot = node.level === "L0_TOTAL";
@@ -348,8 +377,78 @@ function TreeRow({
           </td>
         );
       })}
+
+      {/* 목표·비고 셀 — 목표대비 ▲▼·비고 ⓘ·입력 ✎ */}
+      <td className="whitespace-nowrap border-l border-zinc-100 px-2 py-[7px] text-center">
+        <AnnotationCell ov={ov} metrics={node.metrics} canInput={canInput} onEdit={onEdit} />
+      </td>
     </tr>
   );
+}
+
+/** 노드 행의 목표·비고 표시 — 목표대비 배지·비고 툴팁·입력 진입. */
+function AnnotationCell({
+  ov,
+  metrics,
+  canInput,
+  onEdit,
+}: {
+  ov?: NodeOverlay;
+  metrics: TreeNode["metrics"];
+  canInput?: boolean;
+  onEdit?: () => void;
+}) {
+  const targetCodes = ov ? Object.keys(ov.targets) : [];
+  // 대표 목표대비 배지(물류비율 우선, 없으면 첫 목표 지표).
+  const lead = targetCodes.includes("logiRatio") ? "logiRatio" : targetCodes[0];
+  const cmp = lead && ov ? compareLead(lead, metrics, ov) : null;
+  const hasNote = Boolean(ov?.remark || ov?.action);
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {cmp && (
+        <span
+          className={["tabnum text-[11px] font-medium", cmp.good ? "text-good" : "text-bad"].join(" ")}
+          title={`${lead} 목표대비 (달성률 ${Math.round(cmp.achievedPct * 100)}%)`}
+        >
+          {cmp.direction === "up" ? "▲" : cmp.direction === "down" ? "▼" : "▬"}
+          {Math.round(cmp.achievedPct * 100)}%
+        </span>
+      )}
+      {hasNote && (
+        <span
+          className="cursor-help text-[12px] text-accent"
+          title={[ov?.remark && `비고: ${ov.remark}`, ov?.action && `조치: ${ov.action}`]
+            .filter(Boolean)
+            .join("\n")}
+        >
+          ⓘ
+        </span>
+      )}
+      {canInput && onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          title="목표·비고 입력"
+          className="text-[11px] text-zinc-400 hover:text-accent"
+        >
+          ✎
+        </button>
+      )}
+      {!cmp && !hasNote && !canInput && <span className="text-zinc-300">·</span>}
+    </span>
+  );
+}
+
+/** 대표 지표 목표대비 계산(셀 배지용). */
+function compareLead(
+  code: string,
+  metrics: TreeNode["metrics"],
+  ov: NodeOverlay,
+): { delta: number; achievedPct: number; direction: "up" | "down" | "flat"; good: boolean } | null {
+  const cur = (metrics as unknown as Record<string, number | null>)[code] ?? null;
+  const target = ov.targets[code];
+  return compareToTarget(code, cur, target);
 }
 
 /** 그룹 첫 컬럼이면 좌측 구분선. */

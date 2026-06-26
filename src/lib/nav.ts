@@ -10,7 +10,7 @@ export type NavItem = {
   href: string;
   label: string;
   /** 설계문서상 뷰 식별(① ② ③) 또는 admin */
-  view: "engine" | "store" | "product" | "admin" | "home" | "upload";
+  view: "engine" | "store" | "product" | "admin" | "home" | "upload" | "input";
   /** 사이드바 아이콘(이모지 — 외부 의존 없이 가볍게). */
   icon: string;
   /** 관리자 전용 여부(RBAC) */
@@ -29,6 +29,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/engine", label: "물류 핵심지표", view: "engine", icon: "◧" },
   { href: "/store", label: "매장 SCM", view: "store", icon: "▤", stub: true },
   { href: "/product", label: "상품 SCM", view: "product", icon: "◫", stub: true },
+  { href: "/input", label: "입력면(물류비예측)", view: "input", icon: "✎" },
   { href: "/admin", label: "관리자", view: "admin", icon: "⚙", adminOnly: true, stub: true },
 ];
 
