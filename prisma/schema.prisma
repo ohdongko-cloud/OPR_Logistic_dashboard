@@ -1,0 +1,93 @@
+// OPR 물류 실적 대시보드 — Prisma 스키마 (골격 / placeholder)
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️ 이 스키마는 "최소 골격"이다. 전체 데이터 모델(fact_kanban / dim_class /
+//    agg_engine / fact_store / fact_product_cum / annotation / target /
+//    cost_input / store_master 등 — 설계문서 §6 데이터 계약)은
+//    아키텍처 문서 확정 후 다음 단계에서 마이그레이션으로 채운다.
+//    지금은 인증(Auth.js)·RBAC 자리만 둔다.
+// 근거: 04_시스템_설계/대시보드_설계_v1.md §5(입력/출력 분리) · §6(데이터 계약)
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Prisma 7: 연결 URL은 schema 가 아닌 prisma.config.ts 에서 관리한다.
+  //   - 런타임 클라이언트는 driver adapter(@prisma/adapter-neon)로 연결.
+  //   - 마이그레이션 URL은 prisma.config.ts 의 migrate.url(DATABASE_URL_UNPOOLED).
+  // 참고: https://pris.ly/d/config-datasource
+}
+
+// ─── RBAC 역할 ───────────────────────────────────────────────────────────────
+// 설계문서 §5 / §7 Q6 의 RBAC 시드 매핑(가정):
+//   VIEWER = 경영자·MD (대시보드 조회)
+//   USER   = 물류책임자 (비고·목표 등 입력면)
+//   ADMIN  = 마스터(관리자)
+// ※ 확정 매핑은 §7 Q6 사용자 회신 후. 지금은 enum 자리만.
+enum Role {
+  VIEWER
+  USER
+  ADMIN
+}
+
+// ─── 사용자 (placeholder) ─────────────────────────────────────────────────────
+// Auth.js(NextAuth) 표준 모델 형태를 따른다. provider(메일 시스템)는 미정이라
+// Account/Session 은 자리만 둔다(다음 단계에서 어댑터 연결).
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  emailVerified DateTime?
+  image         String?
+  role          Role      @default(VIEWER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+
+  @@map("users")
+}
+
+// ─── Auth.js 표준 모델 (PrismaAdapter 용 자리) ────────────────────────────────
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
