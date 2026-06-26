@@ -5,8 +5,9 @@
   "description": "OPR 물류 실적 대시보드 (시즌-아이템 엔진 드릴다운 + 매장/상품 SCM)",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
+    "postinstall": "prisma generate",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

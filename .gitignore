@@ -53,3 +53,6 @@ next-env.d.ts
 !assets/ppt-template.pptx
 # 마스킹 이름 denylist(실명 목록) — 로컬 빌드 전용, 커밋 금지.
 scripts/.mask-names.local.txt
+# 로컬 배포 헬퍼(시크릿 주입 래퍼) — 절대 커밋 금지.
+.vrun.local.cjs
+.envset.local.cjs
