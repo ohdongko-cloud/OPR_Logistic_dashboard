@@ -1,21 +1,39 @@
-import { ViewStub } from "@/components/view-stub";
+import { redirect } from "next/navigation";
+
+import { AdminUsers } from "@/components/admin/admin-users";
+import { requireTab, AuthzError } from "@/lib/authz";
 
 /**
- * 관리자 — 사용자/권한(RBAC) · 업로드/ETL · 입력면 관리.
- * 설계문서 §5(입력/출력 분리·RBAC 시드) · §7 Q6(역할 매핑).
- * ⚠️ 라우트 가드(ADMIN 전용)는 다음 단계에서 세션 역할로 강제.
+ * 관리자 — 사용자/권한(RBAC) 관리(ADMIN 전용).
+ *
+ * 게이트: requireTab("admin","MANAGE"). 비인증 → /login, 권한부족 → /engine.
+ * 본문: 사용자 목록 + role·active·탭별 권한(VIEW/INPUT/MANAGE) 부여 UI(클라).
+ *
+ * 근거: 작업지시(관리자페이지) · 아키텍처 §4-2 매트릭스 · §5-1.
  */
-export default function AdminPage() {
+export const dynamic = "force-dynamic";
+
+export default async function AdminPage() {
+  try {
+    await requireTab("admin", "MANAGE");
+  } catch (e) {
+    if (e instanceof AuthzError && e.status === 403) {
+      redirect("/engine"); // 인증됐으나 권한 없음 → 메인으로.
+    }
+    redirect("/login"); // 비인증.
+  }
+
   return (
-    <ViewStub
-      title="관리자"
-      subtitle="사용자·권한(RBAC) · SAP RAW 업로드/ETL · 입력면(비고·목표·물류비·점포마스터) 관리."
-      source="설계 §5 / §6 데이터 계약 / §7 Q6"
-      planned={[
-        "사용자·역할 관리 (VIEWER/USER/ADMIN — 마스터는 env)",
-        "SAP RAW 7종 업로드 → 칸반 ETL (참조 피킹앱 업로드 패턴)",
-        "입력면: 비고·조치 / 목표·전년 / 물류비 총액 / 점포 마스터",
-      ]}
-    />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="border-b border-zinc-200 bg-white px-6 py-4">
+        <h1 className="text-lg font-semibold text-foreground">관리자 — 사용자·권한</h1>
+        <p className="mt-0.5 text-sm text-zinc-500">
+          사용자 역할(role)과 탭별 권한(VIEW/INPUT/MANAGE)을 부여합니다. 변경은 즉시 반영됩니다.
+        </p>
+      </header>
+      <div className="min-h-0 flex-1 overflow-auto p-6">
+        <AdminUsers />
+      </div>
+    </div>
   );
 }

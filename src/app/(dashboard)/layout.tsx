@@ -25,11 +25,12 @@ export default async function DashboardLayout({
 async function safeUser(): Promise<{
   name?: string | null;
   email?: string | null;
+  role?: string | null;
 } | null> {
   try {
     const { auth } = await import("@/auth");
     const session = await auth();
-    return session?.user ?? null;
+    return (session?.user as { name?: string | null; email?: string | null; role?: string | null }) ?? null;
   } catch {
     return null;
   }

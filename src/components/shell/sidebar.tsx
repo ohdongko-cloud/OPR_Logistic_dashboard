@@ -17,13 +17,16 @@ import { NAV_ITEMS } from "@/lib/nav";
 export function Sidebar({
   user,
 }: {
-  user?: { name?: string | null; email?: string | null } | null;
+  user?: { name?: string | null; email?: string | null; role?: string | null } | null;
 }) {
   const pathname = usePathname();
 
   const name = user?.name ?? "OPR 운영자";
   const email = user?.email ?? "logistics@opr.local";
   const initial = (name?.trim()?.[0] ?? "O").toUpperCase();
+  const isAdmin = user?.role === "ADMIN";
+  // 관리자 전용 메뉴는 ADMIN 에게만 노출(서버 가드와 별개의 UI 숨김).
+  const navItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <aside className="flex w-[208px] shrink-0 flex-col bg-sidebar text-sidebar-fg">
@@ -47,7 +50,7 @@ export function Sidebar({
 
       {/* 내비 */}
       <nav className="flex flex-1 flex-col gap-0.5 px-2 py-3">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const active =
             pathname === item.href ||
             (item.href !== "/" && pathname.startsWith(item.href + "/"));

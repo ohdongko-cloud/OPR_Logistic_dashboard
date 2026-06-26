@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,7 +16,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className="h-full antialiased">
-      <body className="min-h-full bg-zinc-50 text-zinc-900">{children}</body>
+      <body className="min-h-full bg-zinc-50 text-zinc-900">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }
