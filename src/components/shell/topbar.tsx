@@ -14,7 +14,16 @@ import { useCallback } from "react";
  * 기간 토글은 기존 PeriodToggle 과 동일한 URL 계약(?period=cumulative)을 쓴다 —
  * 엔진 뷰는 변경 없이 그대로 refetch.
  */
-export function Topbar({ title, subtitle }: { title: string; subtitle?: string }) {
+export function Topbar({
+  title,
+  subtitle,
+  periodLocked,
+}: {
+  title: string;
+  subtitle?: string;
+  /** 당월 전용 뷰(매장) — 누적 칩 비활성(graceful). 매장은 누적본 미동봉. */
+  periodLocked?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -50,6 +59,7 @@ export function Topbar({ title, subtitle }: { title: string; subtitle?: string }
             active={period === "cumulative"}
             onClick={() => setPeriod("cumulative")}
             label="누적"
+            disabled={periodLocked}
           />
         </div>
       </div>
@@ -71,21 +81,27 @@ function PeriodChip({
   active,
   onClick,
   label,
+  disabled,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       aria-pressed={active}
+      disabled={disabled}
+      title={disabled ? "매장 SCM 은 당월만 제공됩니다(누적본 미동봉)." : undefined}
       className={[
         "inline-flex items-center gap-1 rounded-full px-3 py-1 font-medium transition-colors",
-        active
-          ? "bg-white text-accent shadow-sm"
-          : "text-zinc-500 hover:text-zinc-700",
+        disabled
+          ? "cursor-not-allowed text-zinc-300"
+          : active
+            ? "bg-white text-accent shadow-sm"
+            : "text-zinc-500 hover:text-zinc-700",
       ].join(" ")}
     >
       <span className="text-[10px] leading-none">{active ? "●" : "○"}</span>

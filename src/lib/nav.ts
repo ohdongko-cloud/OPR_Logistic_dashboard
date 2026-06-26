@@ -27,7 +27,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "대시보드", view: "home", icon: "▦", stub: true },
   { href: "/upload", label: "데이터 업로드", view: "upload", icon: "↥", stub: true },
   { href: "/engine", label: "물류 핵심지표", view: "engine", icon: "◧" },
-  { href: "/store", label: "매장 SCM", view: "store", icon: "▤", stub: true },
+  { href: "/store", label: "매장 SCM", view: "store", icon: "▤" },
   { href: "/product", label: "상품 SCM", view: "product", icon: "◫", stub: true },
   { href: "/input", label: "입력면(물류비예측)", view: "input", icon: "✎" },
   { href: "/admin", label: "관리자", view: "admin", icon: "⚙", adminOnly: true, stub: true },
