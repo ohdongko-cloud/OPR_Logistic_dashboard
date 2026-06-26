@@ -87,6 +87,13 @@ export function EngineView() {
     );
   }, [data, filterText]);
 
+  // PPT 내보내기 — 서버에서 원본 양식 그대로 채워 다운로드(슬라이드1 전수, 필터 무관).
+  const onExportPptx = useCallback(() => {
+    const qs = new URLSearchParams({ period_type: periodParam });
+    // 브라우저 다운로드(서버 응답 = attachment).
+    window.location.assign(`/api/export/pptx?${qs.toString()}`);
+  }, [periodParam]);
+
   return (
     <section className="mx-auto max-w-screen-2xl space-y-4">
       {/* 헤더 행 */}
@@ -102,14 +109,24 @@ export function EngineView() {
             )}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onExport}
-          disabled={!data}
-          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-        >
-          ⬇ 엑셀 내보내기
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onExport}
+            disabled={!data}
+            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            ⬇ 엑셀 내보내기
+          </button>
+          <button
+            type="button"
+            onClick={onExportPptx}
+            title="원본 PPT 양식 그대로 슬라이드1(물류 핵심지표)을 채워 다운로드"
+            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            ⬇ PPT 내보내기
+          </button>
+        </div>
       </div>
 
       {/* 필터 */}

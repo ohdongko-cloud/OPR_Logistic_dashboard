@@ -47,3 +47,9 @@ next-env.d.ts
 *.xlsm
 *.xls
 /data/
+
+# PPTX: 원본(실데이터/실명 포함)은 커밋 금지. 마스킹 템플릿(assets/ppt-template.pptx)만 커밋.
+*.pptx
+!assets/ppt-template.pptx
+# 마스킹 이름 denylist(실명 목록) — 로컬 빌드 전용, 커밋 금지.
+scripts/.mask-names.local.txt
