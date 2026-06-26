@@ -1,11 +1,15 @@
-// OPR 물류 실적 대시보드 — Prisma 스키마 (골격 / placeholder)
+// OPR 물류 실적 대시보드 — Prisma 전체 데이터 모델
 // ─────────────────────────────────────────────────────────────────────────────
-// ⚠️ 이 스키마는 "최소 골격"이다. 전체 데이터 모델(fact_kanban / dim_class /
-//    agg_engine / fact_store / fact_product_cum / annotation / target /
-//    cost_input / store_master 등 — 설계문서 §6 데이터 계약)은
-//    아키텍처 문서 확정 후 다음 단계에서 마이그레이션으로 채운다.
-//    지금은 인증(Auth.js)·RBAC 자리만 둔다.
-// 근거: 04_시스템_설계/대시보드_설계_v1.md §5(입력/출력 분리) · §6(데이터 계약)
+// 근거: 04_시스템_설계/아키텍처_대시보드MVP.md §1 (데이터 모델 8테이블)
+//        §1-3 Prisma schema 초안 그대로 + Auth.js 표준 모델.
+//   8 코어: Snapshot · RawRow · FactKanban · DimClass · Annotation · User
+//           · TabPermission · IngestLog
+//   + Auth.js: Account · Session · VerificationToken (PrismaAdapter)
+//   + 매장②·상품③ fast-follow 자리: FactStore · FactProductCum (스키마만)
+//
+// 연결 URL 은 schema 가 아닌 prisma.config.ts(DATABASE_URL_UNPOOLED).
+// 런타임은 driver adapter(@prisma/adapter-neon) — src/lib/prisma.ts.
+// ⚠️ Neon 미구성 → 마이그레이션은 --create-only 로 파일만 생성(적용 X).
 // ─────────────────────────────────────────────────────────────────────────────
 
 generator client {
@@ -14,44 +18,260 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // Prisma 7: 연결 URL은 schema 가 아닌 prisma.config.ts 에서 관리한다.
-  //   - 런타임 클라이언트는 driver adapter(@prisma/adapter-neon)로 연결.
-  //   - 마이그레이션 URL은 prisma.config.ts 의 migrate.url(DATABASE_URL_UNPOOLED).
-  // 참고: https://pris.ly/d/config-datasource
 }
 
-// ─── RBAC 역할 ───────────────────────────────────────────────────────────────
-// 설계문서 §5 / §7 Q6 의 RBAC 시드 매핑(가정):
-//   VIEWER = 경영자·MD (대시보드 조회)
-//   USER   = 물류책임자 (비고·목표 등 입력면)
-//   ADMIN  = 마스터(관리자)
-// ※ 확정 매핑은 §7 Q6 사용자 회신 후. 지금은 enum 자리만.
+// ── enums ──────────────────────────────────────────────────────────────────
 enum Role {
-  VIEWER
-  USER
   ADMIN
+  STAFF
+  VIEWER
 }
 
-// ─── 사용자 (placeholder) ─────────────────────────────────────────────────────
-// Auth.js(NextAuth) 표준 모델 형태를 따른다. provider(메일 시스템)는 미정이라
-// Account/Session 은 자리만 둔다(다음 단계에서 어댑터 연결).
+enum PeriodType {
+  MONTH // 당월
+  CUMULATIVE // 누적
+}
+
+enum SnapStatus {
+  PROCESSING
+  CURRENT
+  SUPERSEDED
+  FAILED
+}
+
+enum SheetType {
+  매출상세
+  점재고
+  물류재고
+  센터입출고
+  기초재고_센터
+  기초재고_지점
+  물류비예측
+  분류
+}
+
+enum PermLevel {
+  VIEW
+  INPUT
+  MANAGE
+}
+
+enum AnnoKind {
+  REMARK // 비고
+  ACTION // 조치
+  TARGET // 목표
+  PRIOR_YEAR // 전년
+  LOGI_COST // 물류비(수기)
+}
+
+enum IngestPhase {
+  UPLOAD
+  VALIDATE
+  PARSE
+  STAGE
+  TRANSFORM
+  PUBLISH
+}
+
+enum IngestResult {
+  OK
+  WARN
+  ERROR
+}
+
+// ── 업로드 / 스냅샷 (시계열 이력 헤드) ─────────────────────────────────────────
+model Snapshot {
+  id           String       @id @default(cuid())
+  periodType   PeriodType
+  periodStart  DateTime     @db.Date
+  periodEnd    DateTime     @db.Date
+  status       SnapStatus   @default(PROCESSING)
+  uploadedById String
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
+  uploadedAt   DateTime     @default(now())
+  rowCount     Int          @default(0)
+  /// 원본 .xlsx Blob URL(감사·재처리용). Neon 구성 후 @vercel/blob.
+  blobUrl      String?
+  raws         RawRow[]
+  facts        FactKanban[]
+  storeFacts   FactStore[]
+  productFacts FactProductCum[]
+  logs         IngestLog[]
+
+  @@index([periodType, periodEnd])
+  @@index([status])
+  @@map("snapshots")
+}
+
+// ── RAW 통합 스테이징 (sheet_type 구분, JSONB) ────────────────────────────────
+model RawRow {
+  id         String    @id @default(cuid())
+  snapshotId String
+  snapshot   Snapshot  @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  sheetType  SheetType
+  rowIndex   Int
+  /// SKU 조인키(A열 = 계절연도-MC자재그룹), 정규화. 마스터/물류비예측은 "".
+  skuKey     String    @default("")
+  /// 원행 그대로(컬럼문자→값 map)
+  data       Json
+
+  @@index([snapshotId, sheetType])
+  @@index([snapshotId, sheetType, skuKey])
+  @@map("raw_rows")
+}
+
+// ── 엔진 집계 팩트 ① 물류 (snapshot × 4키, 19지표) ───────────────────────────
+model FactKanban {
+  id         String   @id @default(cuid())
+  snapshotId String
+  snapshot   Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  gender     String // 여성/남성/아동
+  newcarry   String // 신상/이월
+  season     String // 봄/여름/가을/겨울/공통
+  item       String // 상의류…아동복
+  skuKey     String? // L5 옵션(없으면 4키 사전집계 행)
+
+  // 19 기초지표 (아키텍처 §1-3 / 수식맵 §2-2) — Decimal, NULL→0 적재
+  mSales    Decimal @db.Decimal(18, 2) // J 추정매출
+  mLogiCost Decimal @db.Decimal(18, 2) // K 물류비
+  mRent     Decimal @db.Decimal(18, 2) // BG 임차료(공간비)
+  mLabor    Decimal @db.Decimal(18, 2) // BN 인건비
+  mFreight  Decimal @db.Decimal(18, 2) // BT 운반비
+  mPack     Decimal @db.Decimal(18, 2) // BV 포장비
+  mCtrQty   Decimal @db.Decimal(18, 2) // Y 센터재고량
+  mCtrAmt   Decimal @db.Decimal(18, 2) // Z 센터재고액
+  mStoQty   Decimal @db.Decimal(18, 2) // AE 점포재고량
+  mStoAmt   Decimal @db.Decimal(18, 2) // AF 점포재고액
+  mOpenAll  Decimal @db.Decimal(18, 2) // AK 기초전체
+  mOpenCtr  Decimal @db.Decimal(18, 2) // AL 기초물류
+  mOpenSto  Decimal @db.Decimal(18, 2) // AM 기초지점
+  mDailyOut Decimal @db.Decimal(18, 2) // P 일평균소진액
+  mInQty    Decimal @db.Decimal(18, 2) // AT 입고
+  mOutQty   Decimal @db.Decimal(18, 2) // AZ 출고
+  mRetQty   Decimal @db.Decimal(18, 2) // BD 반품
+  mDeadCtr  Decimal @db.Decimal(18, 2) // AC 센터체화금액
+  mDeadSto  Decimal @db.Decimal(18, 2) // AI 지점체화금액
+
+  @@index([snapshotId, gender, newcarry, season, item])
+  @@map("fact_kanban")
+}
+
+// ── 분류 마스터 ───────────────────────────────────────────────────────────────
+model DimClass {
+  id        String @id @default(cuid())
+  itemRaw   String // D (원라벨)
+  item      String // 조합 → item
+  genderRaw String // C
+  gender    String // 조합2 → gender
+
+  @@index([itemRaw])
+  @@index([genderRaw])
+  @@map("dim_class")
+}
+
+// ── 입력면: 비고·조치·목표·전년·물류비 (수기) ─────────────────────────────────
+model Annotation {
+  id          String     @id @default(cuid())
+  kind        AnnoKind
+  periodType  PeriodType
+  periodStart DateTime   @db.Date // 귀속 기간(스냅샷과 분리 — 이력 무관 보존)
+  gender      String? // 4키 노드(전사 비고면 NULL)
+  newcarry    String?
+  season      String?
+  item        String?
+  metricCode  String? // TARGET/PRIOR_YEAR/LOGI_COST 시 지표코드
+  numValue    Decimal?   @db.Decimal(18, 2)
+  textValue   String? // REMARK/ACTION 본문
+  authorId    String
+  author      User       @relation(fields: [authorId], references: [id])
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([kind, periodType, periodStart])
+  @@index([gender, newcarry, season, item])
+  @@map("annotations")
+}
+
+// ── 인증·RBAC ─────────────────────────────────────────────────────────────────
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
+  id            String          @id @default(cuid())
+  email         String          @unique
   name          String?
   emailVerified DateTime?
   image         String?
-  role          Role      @default(VIEWER)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  accounts Account[]
-  sessions Session[]
+  role          Role            @default(VIEWER) // 가입=조회 기본
+  active        Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  perms         TabPermission[]
+  snapshots     Snapshot[]
+  annotations   Annotation[]
+  // Auth.js 관계
+  accounts      Account[]
+  sessions      Session[]
 
   @@map("users")
 }
 
-// ─── Auth.js 표준 모델 (PrismaAdapter 용 자리) ────────────────────────────────
+model TabPermission {
+  id     String    @id @default(cuid())
+  userId String
+  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tab    String // "logistics" | "store" | "product" | "input" | "admin"
+  level  PermLevel
+
+  @@unique([userId, tab])
+  @@map("tab_permissions")
+}
+
+// ── 감사·ETL 로그 ─────────────────────────────────────────────────────────────
+model IngestLog {
+  id         String       @id @default(cuid())
+  snapshotId String
+  snapshot   Snapshot     @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  phase      IngestPhase
+  result     IngestResult
+  detail     Json?
+  at         DateTime     @default(now())
+
+  @@index([snapshotId, at])
+  @@map("ingest_logs")
+}
+
+// ── 매장②·상품③ fast-follow (아키텍처 §1 "스키마 자리만") ─────────────────────
+// MVP 구현 대상 아님. FactKanban 동형 — snapshot FK + 자기 키 + 지표.
+model FactStore {
+  id         String   @id @default(cuid())
+  snapshotId String
+  snapshot   Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  storeCode  String // 점포코드(마스킹 대상)
+  gender     String?
+  item       String?
+  mStoQty    Decimal  @db.Decimal(18, 2)
+  mStoAmt    Decimal  @db.Decimal(18, 2)
+  mDeadSto   Decimal  @db.Decimal(18, 2)
+
+  @@index([snapshotId, storeCode])
+  @@map("fact_store")
+}
+
+model FactProductCum {
+  id         String   @id @default(cuid())
+  snapshotId String
+  snapshot   Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  skuKey     String
+  gender     String?
+  season     String?
+  item       String?
+  mSalesCum  Decimal  @db.Decimal(18, 2)
+  mInCum     Decimal  @db.Decimal(18, 2)
+  mOutCum    Decimal  @db.Decimal(18, 2)
+
+  @@index([snapshotId, skuKey])
+  @@map("fact_product_cum")
+}
+
+// ── Auth.js 표준 모델 (PrismaAdapter) ─────────────────────────────────────────
 model Account {
   id                String  @id @default(cuid())
   userId            String
