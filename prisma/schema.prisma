@@ -32,6 +32,13 @@ enum PeriodType {
   CUMULATIVE // 누적
 }
 
+// 스냅샷 데이터셋 종류 — 아이템(①)/매장(②)/상품(③) 분리. CURRENT 조회 격리키.
+enum FileType {
+  ITEM // 아이템(시즌-아이템 엔진)
+  STORE // 매장(점포 SCM)
+  PRODUCT // 상품(③ fast-follow)
+}
+
 enum SnapStatus {
   PROCESSING
   CURRENT
@@ -83,6 +90,8 @@ enum IngestResult {
 model Snapshot {
   id           String       @id @default(cuid())
   periodType   PeriodType
+  /// 데이터셋 종류(아이템/매장/상품). 기존 행 = ITEM(기본). CURRENT 조회 격리.
+  fileType     FileType     @default(ITEM)
   periodStart  DateTime     @db.Date
   periodEnd    DateTime     @db.Date
   status       SnapStatus   @default(PROCESSING)
@@ -258,20 +267,64 @@ model IngestLog {
   @@map("ingest_logs")
 }
 
-// ── 매장②·상품③ fast-follow (아키텍처 §1 "스키마 자리만") ─────────────────────
-// MVP 구현 대상 아님. FactKanban 동형 — snapshot FK + 자기 키 + 지표.
+// ── 매장② 팩트 (snapshot × 점포, 매장 칸반 35열 + 기준마스터 + (−)재고) ──────────
+// 근거: 02_파일분석/엔진_transform_spec_매장.md · store-engine-realfile.test(엑셀 100% 검증).
+// SKU grain 이 아닌 점포 grain(31점). 데이터열=Decimal NOT NULL DEFAULT 0, 파생/마스터=nullable.
+// 채널·지점명은 RAW 부재 마스터(칸반 B/C 원본) — 그대로 박제(복원 시 동일 트리).
 model FactStore {
   id         String   @id @default(cuid())
   snapshotId String
   snapshot   Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-  storeCode  String // 점포코드(마스킹 대상)
-  gender     String?
-  item       String?
-  mStoQty    Decimal  @db.Decimal(18, 2)
-  mStoAmt    Decimal  @db.Decimal(18, 2)
-  mDeadSto   Decimal  @db.Decimal(18, 2)
+  storeCode  String // A 점포코드(VLOOKUP 조인키 · 마스킹 대상)
+  channel    String // B 구분(직영/중간관리/기타)
+  storeName  String // C 지점명
+
+  // 픽스블록(H~V) 데이터열
+  mInQtyFix     Decimal @default(0) @db.Decimal(18, 2) // H 입고량(픽스)
+  mInAmtFix     Decimal @default(0) @db.Decimal(18, 2) // I 입고액(픽스)
+  mRetQtyFix    Decimal @default(0) @db.Decimal(18, 2) // J 반품량(픽스)
+  mRetAmtFix    Decimal @default(0) @db.Decimal(18, 2) // K 반품액(픽스)
+  mSaleQtyFix   Decimal @default(0) @db.Decimal(18, 2) // L 판매량(픽스)
+  mSaleAmtFix   Decimal @default(0) @db.Decimal(18, 2) // M 판매액(픽스)
+  mCogsFix      Decimal @default(0) @db.Decimal(18, 2) // N 매출원가(픽스)
+  mSummerInvQty Decimal @default(0) @db.Decimal(18, 2) // P 여름/공통 재고량
+  mSummerInvAmt Decimal @default(0) @db.Decimal(18, 2) // Q 여름/공통 재고액
+  mInvQtyFix    Decimal @default(0) @db.Decimal(18, 2) // R 재고량(픽스)
+  mInvAmtFix    Decimal @default(0) @db.Decimal(18, 2) // S 재고액(픽스)
+  mOpenQtyFix   Decimal @default(0) @db.Decimal(18, 2) // T 기초재고량(픽스)
+  mOpenAmtFix   Decimal @default(0) @db.Decimal(18, 2) // U 기초재고액(픽스)
+
+  // 전체블록(W~AI) 데이터열
+  mInQtyAll   Decimal @default(0) @db.Decimal(18, 2) // W 입고량(전체)
+  mInAmtAll   Decimal @default(0) @db.Decimal(18, 2) // X 입고액(전체)
+  mRetQtyAll  Decimal @default(0) @db.Decimal(18, 2) // Y 반품량(전체)
+  mRetAmtAll  Decimal @default(0) @db.Decimal(18, 2) // Z 반품액(전체)
+  mSaleQtyAll Decimal @default(0) @db.Decimal(18, 2) // AA 판매량(전체)
+  mSaleAmtAll Decimal @default(0) @db.Decimal(18, 2) // AB 판매액(전체)
+  mCogsAll    Decimal @default(0) @db.Decimal(18, 2) // AC 매출원가(전체)
+  mInvQtyAll  Decimal @default(0) @db.Decimal(18, 2) // AE 기말재고량(전체)
+  mInvAmtAll  Decimal @default(0) @db.Decimal(18, 2) // AF 기말재고액(전체)
+  mOpenQtyAll Decimal @default(0) @db.Decimal(18, 2) // AG 기초재고량(전체)
+  mOpenAmtAll Decimal @default(0) @db.Decimal(18, 2) // AH 기초재고액(전체)
+
+  // 점포 기준 마스터(대시 H~K — 큐레이션 입력, nullable) + (−)재고(수불오차)
+  areaPyeong     Decimal? @db.Decimal(18, 2) // H 운영평수
+  baseInvQty     Decimal? @db.Decimal(18, 2) // I 기준재고량
+  baseDisplayQty Decimal? @db.Decimal(18, 2) // J 기준진열량
+  baseRunQty     Decimal? @db.Decimal(18, 2) // K 기준주판량
+  isCard         Boolean  @default(false) // 대시보드 카드 노출 점포(큐레이션)
+  mNegQty        Decimal? @db.Decimal(18, 2) // V (−)재고 수량(수불오차)
+  mNegAmt        Decimal? @db.Decimal(18, 2) // W (−)재고 금액(수불오차)
+
+  // ⚠️ 레거시(init 스키마 자리만) — 매장 엔진 미사용. 삭제 금지(헌장)·DEFAULT 0 보존.
+  gender   String?
+  item     String?
+  mStoQty  Decimal @default(0) @db.Decimal(18, 2)
+  mStoAmt  Decimal @default(0) @db.Decimal(18, 2)
+  mDeadSto Decimal @default(0) @db.Decimal(18, 2)
 
   @@index([snapshotId, storeCode])
+  @@index([snapshotId, channel])
   @@map("fact_store")
 }
 

@@ -1,20 +1,19 @@
-import { ViewStub } from "@/components/view-stub";
+import { Suspense } from "react";
+
+import { StoreView } from "@/components/store/store-view";
 
 /**
- * ② 매장 SCM — 점포(채널) 단위 입고/주판/판매/재고.
- * 설계문서 §2-B(M1~M12: 판매배수·재고일수·(−)재고 등).
+ * ② 매장 SCM — 점포(채널) 단위 입고/판매/재고 드릴다운.
+ * 설계: 엔진_transform_spec_매장.md(RAW→매장칸반→지점대시보드, 셀단위 100% 검증).
+ *
+ * 매장 엔진(src/lib/engine-store)은 엑셀 ※지점대시보드·매장전체칸반 캐시값과 100% 대조.
+ * /api/store-agg 가 DB(FactStore CURRENT) 우선·라이브파일 폴백으로 3단 트리 반환.
+ * useSearchParams(채널·기간) 사용 → Suspense 경계 필요. 매장은 당월만(누적 비활성).
  */
 export default function StorePage() {
   return (
-    <ViewStub
-      title="② 매장 SCM"
-      subtitle="점포(채널) 단위 입고·주판·판매·재고. 판매배수·재고일수·(−)마이너스재고 경고."
-      source="R-004 매장전체칸반 · ※지점대시보드 · 설계 §2-B"
-      planned={[
-        "KPI 카드 (판매배수 · 재고일수(픽스) · (−)재고)",
-        "점포 랭킹/테이블 + (−)재고 경고 강조",
-        "채널 구성 도넛(직영·중간관리·기타)",
-      ]}
-    />
+    <Suspense fallback={<div className="p-8 text-center text-sm text-zinc-400">로딩 중…</div>}>
+      <StoreView />
+    </Suspense>
   );
 }

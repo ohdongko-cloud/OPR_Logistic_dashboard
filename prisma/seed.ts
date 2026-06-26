@@ -22,7 +22,9 @@ import { PrismaNeon } from "@prisma/adapter-neon";
 
 import { ingestFiles } from "../src/lib/ingest";
 import { type PeriodType } from "../src/lib/engine";
+import { ingestStoreFile, MONTH_STORE_PARAMS } from "../src/lib/engine-store";
 import { persistSnapshot } from "../src/lib/server/persist";
+import { persistStoreSnapshot } from "../src/lib/server/persist-store";
 
 loadEnv(); // .env (DATABASE_URL)
 loadEnv({ path: ".env.local" }); // OPR_DATA_DIR
@@ -33,6 +35,9 @@ const FILE_NAMES: Record<PeriodType, string> = {
   MONTH: "#.유통물류(OPR)_모니터링(아이템)_당월(1).xlsx",
   CUMULATIVE: "#.유통물류(OPR)_모니터링(아이템)_누적(1).xlsx",
 };
+
+/** 매장② 당월 파일(매장 누적본은 미동봉 — 당월만 시드). */
+const STORE_FILE_MONTH = "#.유통물류(OPR)_모니터링(매장)_당월(1).xlsx";
 
 const ANCHORS: Record<PeriodType, { salesDays: number; monthDays: number; factor: number }> = {
   MONTH: { salesDays: 21, monthDays: 30, factor: 1.22 },
@@ -107,16 +112,55 @@ async function main() {
       );
     }
 
+    // ── 매장② 당월 시드(fileType=STORE) ──
+    const storePath = path.join(dataDir(), STORE_FILE_MONTH);
+    if (existsSync(storePath)) {
+      const sbuf = readFileSync(storePath);
+      const sbytes = new Uint8Array(sbuf.buffer, sbuf.byteOffset, sbuf.byteLength);
+      const sing = ingestStoreFile(sbytes);
+      if (!sing.ok) {
+        console.error(`[seed] 매장 검증 실패: ${sing.blockedReason}`);
+      } else {
+        const { start, end } = PERIOD_RANGE.MONTH;
+        const sres = await persistStoreSnapshot({
+          prisma,
+          uploadedById: uploader.id,
+          periodType: "MONTH",
+          periodStart: start,
+          periodEnd: end,
+          raw: sing.raw,
+          roster: sing.roster,
+          curation: sing.curation,
+          errors: sing.errors,
+          params: MONTH_STORE_PARAMS,
+        });
+        console.log(
+          `[seed] STORE MONTH 적재 완료 — snapshot=${sres.snapshotId} status=${sres.status} ` +
+            `fact=${sres.factRowCount}` +
+            (sres.supersededId ? ` (이전 ${sres.supersededId} → SUPERSEDED)` : ""),
+        );
+      }
+    } else {
+      console.warn(`[seed] 매장 파일 없음 — 스킵: ${STORE_FILE_MONTH}`);
+    }
+
     // 결과 요약(증거).
     const current = await prisma.snapshot.findMany({
       where: { status: "CURRENT" },
-      select: { id: true, periodType: true, periodEnd: true, _count: { select: { facts: true } } },
-      orderBy: { periodType: "asc" },
+      select: {
+        id: true,
+        fileType: true,
+        periodType: true,
+        periodEnd: true,
+        _count: { select: { facts: true, storeFacts: true } },
+      },
+      orderBy: [{ fileType: "asc" }, { periodType: "asc" }],
     });
     console.log("[seed] CURRENT 스냅샷:");
     for (const s of current) {
+      const cnt = s.fileType === "STORE" ? s._count.storeFacts : s._count.facts;
       console.log(
-        `  - ${s.periodType} (periodEnd=${s.periodEnd.toISOString().slice(0, 10)}) fact=${s._count.facts}`,
+        `  - ${s.fileType} ${s.periodType} (periodEnd=${s.periodEnd.toISOString().slice(0, 10)}) fact=${cnt}`,
       );
     }
   } finally {
