@@ -9,12 +9,13 @@
  * 채움 범위(현 단계): 슬라이드1(① 물류 핵심지표 1P) — 30 데이터행 × 20 데이터열.
  *   슬라이드 2(매장 SCM)·3·4(상품 SCM)·5(목표대비) = fast-follow(템플릿 빈칸 유지).
  *
- * 인가: 출력면(VIEW) — /api/agg 와 동일 posture(데모 단계 읽기 허용). 업로드·변경만 가드.
+ * 인가: 출력면(logistics VIEW) — 인증 + VIEW 게이트(requireTab).
  * 보안: 실데이터는 서버 메모리만(영속화/외부반출 없음). 템플릿은 마스킹본.
  */
 
 import { NextResponse } from "next/server";
 
+import { guardTab } from "@/lib/authz";
 import { parsePeriod, periodLabel } from "@/lib/engine";
 import { EngineDataError, getKanban } from "@/lib/server/engine-cache";
 import { injectSlide1 } from "@/lib/pptx/inject";
@@ -29,7 +30,11 @@ function fileName(label: string): string {
   return base;
 }
 
-export function GET(req: Request): NextResponse {
+export async function GET(req: Request): Promise<NextResponse> {
+  // 인증 + VIEW 게이트(logistics).
+  const guarded = await guardTab("logistics", "VIEW");
+  if (guarded instanceof NextResponse) return guarded;
+
   const url = new URL(req.url);
   const period = parsePeriod(url.searchParams.get("period_type"));
 

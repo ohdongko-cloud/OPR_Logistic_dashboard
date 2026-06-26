@@ -9,12 +9,13 @@
  *   period_type = 당월(기본) | 누적  (또는 MONTH|CUMULATIVE)
  *   gender·newcarry·season·item = 필터(선택, 진입점 점프)
  *
- * 인가: 출력면(logistics VIEW). 현 단계 인증 provider 미구성 → 읽기는 허용(데모),
- *       업로드·변경 라우트만 가드 유지(보안 경계: 읽기 ≠ 쓰기).
+ * 인가: 출력면(logistics VIEW) — 인증 + VIEW 게이트(requireTab). 비인증 401, 권한부족 403.
+ *       (작업지시: /api/agg·대시보드 = 인증+VIEW 강제.)
  */
 
 import { NextResponse } from "next/server";
 
+import { guardTab } from "@/lib/authz";
 import {
   buildDrilldownTree,
   flattenTree,
@@ -34,6 +35,10 @@ function pick(v: string | null): string | undefined {
 }
 
 export async function GET(req: Request): Promise<NextResponse> {
+  // 인증 + VIEW 게이트(logistics). 클라 신뢰 금지 — 서버단 강제.
+  const guarded = await guardTab("logistics", "VIEW");
+  if (guarded instanceof NextResponse) return guarded;
+
   const url = new URL(req.url);
   const period = parsePeriod(url.searchParams.get("period_type"));
   const filter: DrilldownFilter = {

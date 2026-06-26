@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 
+import { guardTab } from "@/lib/authz";
 import { parsePeriod, skuDetailsFor, type FactKey } from "@/lib/engine";
 import { EngineDataError, resolveKanban } from "@/lib/server/kanban-source";
 
@@ -18,6 +19,10 @@ function req(v: string | null): string {
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
+  // 인증 + VIEW 게이트(logistics).
+  const guarded = await guardTab("logistics", "VIEW");
+  if (guarded instanceof NextResponse) return guarded;
+
   const url = new URL(request.url);
   const period = parsePeriod(url.searchParams.get("period_type"));
   const key: FactKey = {

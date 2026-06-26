@@ -3,11 +3,12 @@
  *
  * 파라미터: period_type(선택 — 당월/누적 필터).
  * 출력: 스냅샷 헤드(기간·상태·업로더·시각·행수) 배열. 실수치 미포함(메타만).
- * 인가: 조회(VIEW) — 현 단계 읽기는 허용(agg 와 동일 경계). DB 미구성 시 빈 목록.
+ * 인가: 조회(logistics VIEW) — 인증 + VIEW 게이트. DB 미구성 시 빈 목록.
  */
 
 import { NextResponse } from "next/server";
 
+import { guardTab } from "@/lib/authz";
 import { parsePeriod } from "@/lib/engine";
 import { getPrisma } from "@/lib/prisma";
 
@@ -15,6 +16,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request): Promise<NextResponse> {
+  // 인증 + VIEW 게이트.
+  const guarded = await guardTab("logistics", "VIEW");
+  if (guarded instanceof NextResponse) return guarded;
+
   const url = new URL(req.url);
   const periodParam = url.searchParams.get("period_type");
 

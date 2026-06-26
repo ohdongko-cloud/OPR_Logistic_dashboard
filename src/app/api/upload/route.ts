@@ -54,7 +54,7 @@ async function guard(): Promise<AuthzUser | NextResponse> {
         { status: 401 },
       );
     }
-    const lvl = effectiveLevel(user, "input");
+    const lvl = await effectiveLevel(user, "input");
     if (lvl !== "MANAGE") {
       return NextResponse.json(
         { ok: false, error: "forbidden", detail: "업로드(input MANAGE) 권한이 없습니다." },
