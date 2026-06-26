@@ -25,6 +25,7 @@ import { type PeriodType } from "../src/lib/engine";
 import { ingestStoreFile, MONTH_STORE_PARAMS } from "../src/lib/engine-store";
 import { persistSnapshot } from "../src/lib/server/persist";
 import { persistStoreSnapshot } from "../src/lib/server/persist-store";
+import { persistProductSnapshot } from "../src/lib/server/persist-product";
 
 loadEnv(); // .env (DATABASE_URL)
 loadEnv({ path: ".env.local" }); // OPR_DATA_DIR
@@ -109,6 +110,21 @@ async function main() {
         `[seed] ${period} 적재 완료 — snapshot=${res.snapshotId} status=${res.status} ` +
           `raw=${res.rawRowCount} fact=${res.factRowCount}` +
           (res.supersededId ? ` (이전 ${res.supersededId} → SUPERSEDED)` : ""),
+      );
+
+      // ── 상품③ 시드(fileType=PRODUCT) — 동일 아이템 records 재사용, 브랜드×시즌 grain ──
+      const pres = await persistProductSnapshot({
+        prisma,
+        uploadedById: uploader.id,
+        periodType: period,
+        periodStart: start,
+        periodEnd: end,
+        records: ingest.records,
+      });
+      console.log(
+        `[seed] PRODUCT ${period} 적재 완료 — snapshot=${pres.snapshotId} status=${pres.status} ` +
+          `fact=${pres.factRowCount}` +
+          (pres.supersededId ? ` (이전 ${pres.supersededId} → SUPERSEDED)` : ""),
       );
     }
 
