@@ -133,6 +133,8 @@ model FactKanban {
 
   // 19 기초지표 (아키텍처 §1-3 / 수식맵 §2-2) — Decimal, NULL→0 적재
   mSales    Decimal @db.Decimal(18, 2) // J 추정매출
+  /// N 실매출액(원본) — SKU 상세(GET /api/agg/sku) 응답 계약 보존용. 추정매출(mSales=J)과 별개.
+  mSalesNet Decimal @default(0) @db.Decimal(18, 2)
   mLogiCost Decimal @db.Decimal(18, 2) // K 물류비
   mRent     Decimal @db.Decimal(18, 2) // BG 임차료(공간비)
   mLabor    Decimal @db.Decimal(18, 2) // BN 인건비
