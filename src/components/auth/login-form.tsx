@@ -6,7 +6,8 @@ import { signIn } from "next-auth/react";
 
 /**
  * 이메일 OTP 로그인 폼 (2단계).
- *   1) 이메일 입력 → POST /api/auth/otp/request (메일 발송)
+ *   1) 이메일 입력 → POST /api/otp/request (메일 발송)
+ *      (NextAuth catch-all 충돌 회피 위해 /api/auth/* 가 아닌 /api/otp/* 경로 사용.)
  *   2) 6자리 코드 입력 → signIn("otp", { email, code }) → 세션 발급
  *
  * 코드는 응답에 오지 않는다(메일 또는 dev 콘솔). devHint 만 안내 표시.
@@ -57,6 +58,7 @@ export function LoginForm() {
   async function verifyCode(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setInfo(null); // 코드 검증 단계 진입 시 dev 안내(info) 배너 닫기 — info+error 동시노출 방지.
     setLoading(true);
     try {
       const res = await signIn("otp", {

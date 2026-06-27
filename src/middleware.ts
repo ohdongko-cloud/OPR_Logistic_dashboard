@@ -13,24 +13,13 @@ import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 
 import { authConfigEdge } from "@/auth.config";
+import { isPublicPath } from "@/lib/route-public";
 
 // 엣지 안전 설정으로 미들웨어 전용 auth(provider·DB·crypto 없음).
 const { auth } = NextAuth(authConfigEdge);
 
-/** 인증 없이 접근 가능한 경로(프리픽스). */
-const PUBLIC_PREFIXES = [
-  "/login",
-  "/api/auth", // NextAuth 핸들러(signin/callback/session 등)
-  "/api/otp", // OTP 발급(로그인 전 접근 필요)
-  "/api/health",
-  "/_next",
-  "/favicon",
-];
-
 function isPublic(pathname: string): boolean {
-  return PUBLIC_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(p + "/") || pathname.startsWith(p),
-  );
+  return isPublicPath(pathname);
 }
 
 export default auth((req) => {

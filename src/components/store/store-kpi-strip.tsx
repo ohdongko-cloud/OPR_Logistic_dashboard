@@ -41,7 +41,9 @@ export function StoreKpiStrip({
     <div className="flex flex-wrap items-stretch gap-x-7 gap-y-3 rounded-lg border border-zinc-200 bg-white px-5 py-3.5">
       <Kpi label="판매배수" value={multG.text} warn={multLow} accent={!multG.suppressed} muted={multG.suppressed} tip={multG.reason} />
       <Kpi label="재고일수" value={daysG.text} warn={daysWarn} muted={daysG.suppressed} tip={daysG.reason} />
-      <Kpi label="시즌비중(여름)" value={seasonG.text} muted={seasonG.suppressed} tip={seasonG.reason} />
+      {/* 계절명 하드코딩 제거 — 컬럼 정의(agg-store-columns seasonPct)와 동일하게 계절 미표기.
+          (가을/겨울 스냅샷에 '여름'이 박히던 오표기 차단. 시즌 동적화는 RAW 메타 도입 시 백로그.) */}
+      <Kpi label="시즌비중" value={seasonG.text} muted={seasonG.suppressed} tip={seasonG.reason} />
       <Kpi label="재고보유율" value={stockG.text} muted={stockG.suppressed} tip={stockG.reason} />
       <Kpi label="(−)재고 수량" value={fmtQty(metrics.negQty)} warn={(metrics.negQty ?? 0) < 0} />
       <Kpi label="(−)재고 금액" value={fmtEok(metrics.negAmt)} warn={negWarn} />
