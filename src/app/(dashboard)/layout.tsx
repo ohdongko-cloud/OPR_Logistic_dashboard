@@ -14,9 +14,11 @@ export default async function DashboardLayout({
   const user = await safeUser();
 
   return (
-    <div className="flex h-full min-h-screen">
+    // 뷰포트 고정 셸 — 사이드바·탑바 고정, 메인 콘텐츠(요약+테이블)만 통째로 세로 스크롤.
+    // (UI 피드백 ③: 상세 테이블 답답함 해소 — 각 뷰의 콘텐츠 div 가 단일 자연 스크롤 소유.)
+    <div className="flex h-screen overflow-hidden">
       <Sidebar user={user} />
-      <div className="flex min-w-0 flex-1 flex-col bg-background">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">{children}</div>
     </div>
   );
 }

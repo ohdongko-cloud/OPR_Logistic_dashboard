@@ -20,15 +20,16 @@ export type NavItem = {
 
 /**
  * 좌측 사이드바 내비(레퍼런스 BI 양식).
- * 대시보드 · 데이터 업로드 · 물류 핵심지표(활성) · 매장 SCM · 상품 SCM · 관리자.
+ * 대시보드 · 물류 핵심지표 · 매장 SCM · 상품 SCM · 입력면(물류비예측) · 데이터 업로드 · 관리자.
+ *   (UI 피드백 ④: "데이터 업로드"를 "관리자" 바로 위로 이동 — 분석·조회 메뉴 다음, 운영/관리 묶음.)
  */
 export const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "대시보드", view: "home", icon: "▦" },
-  { href: "/upload", label: "데이터 업로드", view: "upload", icon: "↥" },
   { href: "/engine", label: "물류 핵심지표", view: "engine", icon: "◧" },
   { href: "/store", label: "매장 SCM", view: "store", icon: "▤" },
   { href: "/product", label: "상품 SCM", view: "product", icon: "◫" },
   { href: "/input", label: "입력면(물류비예측)", view: "input", icon: "✎" },
+  { href: "/upload", label: "데이터 업로드", view: "upload", icon: "↥" },
   { href: "/admin", label: "관리자", view: "admin", icon: "⚙", adminOnly: true },
 ];
 

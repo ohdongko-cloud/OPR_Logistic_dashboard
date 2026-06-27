@@ -17,6 +17,12 @@ import {
 } from "@/lib/engine";
 import { fmtDays, fmtEok, fmtNum, fmtPct, fmtQty } from "@/lib/format";
 import { guardedText } from "@/components/shared/guarded-ratio";
+import { aggRowBg } from "@/components/shared/row-tone";
+import {
+  useTableDensity,
+  type DensityTokens,
+} from "@/components/shared/use-table-density";
+import { DensityToggle } from "@/components/shared/density-toggle";
 
 /**
  * 드릴다운 트리테이블 — 조밀한 Excel風 (레퍼런스 BI 양식).
@@ -123,6 +129,7 @@ export function TreeTable({
   canInput?: boolean;
   onEditNode?: (node: TreeNode) => void;
 }) {
+  const { density, tokens, toggle: toggleDensity } = useTableDensity();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([root.id]));
   const [sortField, setSortField] = useState<keyof TreeNode["metrics"] | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -178,6 +185,7 @@ export function TreeTable({
         <button type="button" onClick={collapseAll} className="rounded border border-zinc-300 px-2 py-1 hover:bg-zinc-50">
           전체접힘
         </button>
+        <DensityToggle density={density} onToggle={toggleDensity} />
         {sortField && (
           <button
             type="button"
@@ -195,15 +203,15 @@ export function TreeTable({
         </span>
       </div>
 
-      {/* 테이블 */}
-      <div className="max-h-[calc(100vh-330px)] overflow-auto">
-        <table className="w-full min-w-[1100px] border-collapse text-[12.5px]">
-          <thead className="sticky top-0 z-20">
-            {/* 그룹 헤더행 */}
+      {/* 테이블 — 페이지 스크롤(가로만 내부, 헤더 sticky). UI 피드백 ③ */}
+      <div className="overflow-x-auto">
+        <table className={["w-full min-w-[1100px] border-collapse", tokens.tableFont].join(" ")}>
+          <thead className="z-20">
+            {/* 그룹 헤더행 — 페이지 스크롤 시 상단 고정(sticky top-0). */}
             <tr className="bg-grid-head text-[10px] uppercase tracking-wide text-zinc-400">
               <th
                 rowSpan={2}
-                className="sticky left-0 z-30 border-b border-r border-zinc-200 bg-grid-head px-3 py-1.5 text-left align-bottom"
+                className="sticky left-0 top-0 z-30 border-b border-r border-zinc-200 bg-grid-head px-3 py-1.5 text-left align-bottom"
               >
                 구분
               </th>
@@ -211,19 +219,19 @@ export function TreeTable({
                 <th
                   key={g.title}
                   colSpan={g.cols.length}
-                  className="border-b border-l border-zinc-200 px-2 py-1 text-center font-semibold"
+                  className="sticky top-0 z-20 border-b border-l border-zinc-200 bg-grid-head px-2 py-1 text-center font-semibold"
                 >
                   {g.title}
                 </th>
               ))}
               <th
                 rowSpan={2}
-                className="border-b border-l border-zinc-200 px-2 py-1 text-center align-bottom font-semibold"
+                className="sticky top-0 z-20 border-b border-l border-zinc-200 bg-grid-head px-2 py-1 text-center align-bottom font-semibold"
               >
                 목표·비고
               </th>
             </tr>
-            {/* 컬럼 헤더행(정렬) */}
+            {/* 컬럼 헤더행(정렬) — 그룹헤더 아래 고정(sticky top-[27px]). */}
             <tr className="bg-grid-head text-[11px] text-zinc-500">
               {COL_GROUPS.map((g) =>
                 g.cols.map((c, ci) => {
@@ -232,7 +240,7 @@ export function TreeTable({
                     <th
                       key={c.field as string}
                       className={[
-                        "whitespace-nowrap border-b border-zinc-200 px-2 py-1 text-right font-medium",
+                        "sticky top-[27px] z-20 whitespace-nowrap border-b border-zinc-200 bg-grid-head px-2 py-1 text-right font-medium",
                         ci === 0 ? "border-l border-zinc-200" : "",
                       ].join(" ")}
                     >
@@ -262,6 +270,7 @@ export function TreeTable({
                 key={node.id}
                 node={node}
                 depth={depth}
+                tokens={tokens}
                 expanded={effectiveExpanded.has(node.id)}
                 onToggle={() => toggle(node.id)}
                 onLeafClick={() => onLeafClick(node)}
@@ -293,17 +302,10 @@ function Legend({ swatch, text }: { swatch: string; text: string }) {
   );
 }
 
-const DEPTH_BG: Record<number, string> = {
-  0: "bg-white",
-  1: "bg-white",
-  2: "bg-grid-row-alt",
-  3: "bg-grid-row-alt",
-  4: "bg-grid-row-alt",
-};
-
 function TreeRow({
   node,
   depth,
+  tokens,
   expanded,
   onToggle,
   onLeafClick,
@@ -313,6 +315,7 @@ function TreeRow({
 }: {
   node: TreeNode;
   depth: number;
+  tokens: DensityTokens;
   expanded: boolean;
   onToggle: () => void;
   onLeafClick: () => void;
@@ -323,14 +326,17 @@ function TreeRow({
   const hasChildren = node.children.length > 0;
   const isRoot = node.level === "L0_TOTAL";
   const isParent = !node.isLeaf;
-  const rowBg = isRoot ? "bg-grid-head" : (DEPTH_BG[depth] ?? "bg-white");
+  // 집계행(비-리프) = 단계 톤 배경, 리프(상세) = 흰배경. UI 피드백 ②
+  const rowBg = aggRowBg({ isLeaf: node.isLeaf, depth });
 
   return (
     <tr className={["group border-b border-grid-line hover:bg-grid-hover", rowBg].join(" ")}>
       {/* 스티키 구분 열 */}
       <td
         className={[
-          "sticky left-0 z-10 border-r border-zinc-200 px-2 py-[7px] text-left",
+          "sticky left-0 z-10 border-r border-zinc-200 text-left",
+          tokens.cellPadX,
+          tokens.cellPadY,
           rowBg,
           "group-hover:bg-grid-hover",
         ].join(" ")}
@@ -379,7 +385,9 @@ function TreeRow({
           <td
             key={c.field as string}
             className={[
-              "tabnum whitespace-nowrap px-2 py-[7px] text-right",
+              "tabnum whitespace-nowrap text-right",
+              tokens.cellPadX,
+              tokens.cellPadY,
               groupStart ? "border-l border-zinc-100" : "",
               isParent ? "font-medium" : "",
               tone,
@@ -392,7 +400,13 @@ function TreeRow({
       })}
 
       {/* 목표·비고 셀 — 목표대비 ▲▼·비고 ⓘ·입력 ✎ */}
-      <td className="whitespace-nowrap border-l border-zinc-100 px-2 py-[7px] text-center">
+      <td
+        className={[
+          "whitespace-nowrap border-l border-zinc-100 text-center",
+          tokens.cellPadX,
+          tokens.cellPadY,
+        ].join(" ")}
+      >
         <AnnotationCell ov={ov} metrics={node.metrics} canInput={canInput} onEdit={onEdit} />
       </td>
     </tr>

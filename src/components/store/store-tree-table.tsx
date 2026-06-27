@@ -14,6 +14,12 @@ import {
 } from "@/lib/engine-store";
 import { fmtDays, fmtEok, fmtMult, fmtNum, fmtPct, fmtQty } from "@/lib/format";
 import { guardedText } from "@/components/shared/guarded-ratio";
+import { aggRowBg } from "@/components/shared/row-tone";
+import {
+  useTableDensity,
+  type DensityTokens,
+} from "@/components/shared/use-table-density";
+import { DensityToggle } from "@/components/shared/density-toggle";
 
 /**
  * 매장 드릴다운 트리테이블 — 전체→채널→점포 3단(레퍼런스 BI 양식, 아이템 tree-table 재사용).
@@ -41,6 +47,7 @@ export function StoreTreeTable({
   const colGroups = useMemo(() => buildStoreColGroups(seasonLabel), [seasonLabel]);
   const flatCols = useMemo(() => colGroups.flatMap((g) => g.cols), [colGroups]);
 
+  const { density, tokens, toggle: toggleDensity } = useTableDensity();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([root.id]));
   const [sortField, setSortField] = useState<keyof StoreTreeNodeDto["metrics"] | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -88,6 +95,7 @@ export function StoreTreeTable({
         <button type="button" onClick={collapseAll} className="rounded border border-zinc-300 px-2 py-1 hover:bg-zinc-50">
           전체접힘
         </button>
+        <DensityToggle density={density} onToggle={toggleDensity} />
         {sortField && (
           <button
             type="button"
@@ -104,13 +112,14 @@ export function StoreTreeTable({
         </span>
       </div>
 
-      <div className="max-h-[calc(100vh-330px)] overflow-auto">
-        <table className="w-full min-w-[1000px] border-collapse text-[12.5px]">
-          <thead className="sticky top-0 z-20">
+      {/* 페이지 스크롤(가로만 내부, 헤더 sticky). UI 피드백 ③ */}
+      <div className="overflow-x-auto">
+        <table className={["w-full min-w-[1000px] border-collapse", tokens.tableFont].join(" ")}>
+          <thead className="z-20">
             <tr className="bg-grid-head text-[10px] uppercase tracking-wide text-zinc-400">
               <th
                 rowSpan={2}
-                className="sticky left-0 z-30 border-b border-r border-zinc-200 bg-grid-head px-3 py-1.5 text-left align-bottom"
+                className="sticky left-0 top-0 z-30 border-b border-r border-zinc-200 bg-grid-head px-3 py-1.5 text-left align-bottom"
               >
                 전체 · 채널 · 점포
               </th>
@@ -118,7 +127,7 @@ export function StoreTreeTable({
                 <th
                   key={g.title}
                   colSpan={g.cols.length}
-                  className="border-b border-l border-zinc-200 px-2 py-1 text-center font-semibold"
+                  className="sticky top-0 z-20 border-b border-l border-zinc-200 bg-grid-head px-2 py-1 text-center font-semibold"
                 >
                   {g.title}
                 </th>
@@ -132,7 +141,7 @@ export function StoreTreeTable({
                     <th
                       key={c.field as string}
                       className={[
-                        "whitespace-nowrap border-b border-zinc-200 px-2 py-1 text-right font-medium",
+                        "sticky top-[27px] z-20 whitespace-nowrap border-b border-zinc-200 bg-grid-head px-2 py-1 text-right font-medium",
                         ci === 0 ? "border-l border-zinc-200" : "",
                       ].join(" ")}
                     >
@@ -160,6 +169,7 @@ export function StoreTreeTable({
                 key={node.id}
                 node={node}
                 depth={depth}
+                tokens={tokens}
                 expanded={effectiveExpanded.has(node.id)}
                 onToggle={() => toggle(node.id)}
                 colGroups={colGroups}
@@ -188,21 +198,17 @@ function Legend({ swatch, text }: { swatch: string; text: string }) {
   );
 }
 
-const DEPTH_BG: Record<number, string> = {
-  0: "bg-grid-head",
-  1: "bg-white",
-  2: "bg-grid-row-alt",
-};
-
 function StoreRow({
   node,
   depth,
+  tokens,
   expanded,
   onToggle,
   colGroups,
 }: {
   node: StoreTreeNodeDto;
   depth: number;
+  tokens: DensityTokens;
   expanded: boolean;
   onToggle: () => void;
   colGroups: StoreColGroup[];
@@ -211,12 +217,19 @@ function StoreRow({
   const hasChildren = node.children.length > 0;
   const isRoot = node.level === "L0_TOTAL";
   const isParent = !node.isLeaf;
-  const rowBg = DEPTH_BG[depth] ?? "bg-white";
+  // 집계행(전체·채널) = 단계 톤, 점포(리프) = 흰배경. UI 피드백 ②
+  const rowBg = aggRowBg({ isLeaf: node.isLeaf, depth });
 
   return (
     <tr className={["group border-b border-grid-line hover:bg-grid-hover", rowBg].join(" ")}>
       <td
-        className={["sticky left-0 z-10 border-r border-zinc-200 px-2 py-[7px] text-left", rowBg, "group-hover:bg-grid-hover"].join(" ")}
+        className={[
+          "sticky left-0 z-10 border-r border-zinc-200 text-left",
+          tokens.cellPadX,
+          tokens.cellPadY,
+          rowBg,
+          "group-hover:bg-grid-hover",
+        ].join(" ")}
       >
         <span style={{ paddingLeft: depth * 14 }} className="inline-flex items-center gap-1">
           {hasChildren ? (
@@ -253,7 +266,9 @@ function StoreRow({
           <td
             key={c.field as string}
             className={[
-              "tabnum whitespace-nowrap px-2 py-[7px] text-right",
+              "tabnum whitespace-nowrap text-right",
+              tokens.cellPadX,
+              tokens.cellPadY,
               groupStart ? "border-l border-zinc-100" : "",
               isParent ? "font-medium" : "",
               tone,

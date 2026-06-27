@@ -15,6 +15,12 @@ import {
 } from "@/lib/engine-product";
 import { fmtEok, fmtMult, fmtNum, fmtPct, fmtQty } from "@/lib/format";
 import { guardedText } from "@/components/shared/guarded-ratio";
+import { aggRowBg } from "@/components/shared/row-tone";
+import {
+  useTableDensity,
+  type DensityTokens,
+} from "@/components/shared/use-table-density";
+import { DensityToggle } from "@/components/shared/density-toggle";
 
 /**
  * 상품 드릴다운 트리테이블 — 전체→브랜드→시즌 3단(레퍼런스 BI 양식, 매장 tree-table 재사용).
@@ -40,6 +46,7 @@ export function ProductTreeTable({
   /** "누적"/"당월" — periodPrefix 컬럼 헤더의 동적 접두(데이터=라벨 일치). */
   periodLabel: string;
 }) {
+  const { density, tokens, toggle: toggleDensity } = useTableDensity();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([root.id]));
   const [sortField, setSortField] = useState<AutoField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -87,6 +94,7 @@ export function ProductTreeTable({
         <button type="button" onClick={collapseAll} className="rounded border border-zinc-300 px-2 py-1 hover:bg-zinc-50">
           전체접힘
         </button>
+        <DensityToggle density={density} onToggle={toggleDensity} />
         {sortField && (
           <button
             type="button"
@@ -104,13 +112,14 @@ export function ProductTreeTable({
         </span>
       </div>
 
-      <div className="max-h-[calc(100vh-340px)] overflow-auto">
-        <table className="w-full min-w-[1280px] border-collapse text-[12.5px]">
-          <thead className="sticky top-0 z-20">
+      {/* 페이지 스크롤(가로만 내부, 헤더 sticky). UI 피드백 ③ */}
+      <div className="overflow-x-auto">
+        <table className={["w-full min-w-[1280px] border-collapse", tokens.tableFont].join(" ")}>
+          <thead className="z-20">
             <tr className="bg-grid-head text-[10px] uppercase tracking-wide text-zinc-400">
               <th
                 rowSpan={2}
-                className="sticky left-0 z-30 border-b border-r border-zinc-200 bg-grid-head px-3 py-1.5 text-left align-bottom"
+                className="sticky left-0 top-0 z-30 border-b border-r border-zinc-200 bg-grid-head px-3 py-1.5 text-left align-bottom"
               >
                 전체 · 브랜드 · 시즌
               </th>
@@ -118,7 +127,7 @@ export function ProductTreeTable({
                 <th
                   key={g.title}
                   colSpan={g.cols.length}
-                  className="border-b border-l border-zinc-200 px-2 py-1 text-center font-semibold"
+                  className="sticky top-0 z-20 border-b border-l border-zinc-200 bg-grid-head px-2 py-1 text-center font-semibold"
                   title={g.responsibility}
                 >
                   {g.title}
@@ -132,7 +141,7 @@ export function ProductTreeTable({
                   <th
                     key={`${g.title}-${c.label}`}
                     className={[
-                      "whitespace-nowrap border-b border-zinc-200 px-2 py-1 text-right font-medium",
+                      "sticky top-[31px] z-20 whitespace-nowrap border-b border-zinc-200 bg-grid-head px-2 py-1 text-right font-medium",
                       ci === 0 ? "border-l border-zinc-200" : "",
                     ].join(" ")}
                   >
@@ -175,6 +184,7 @@ export function ProductTreeTable({
                 key={node.id}
                 node={node}
                 depth={depth}
+                tokens={tokens}
                 expanded={effectiveExpanded.has(node.id)}
                 onToggle={() => toggle(node.id)}
               />
@@ -202,27 +212,24 @@ function Legend({ swatch, text }: { swatch: string; text: string }) {
   );
 }
 
-const DEPTH_BG: Record<number, string> = {
-  0: "bg-grid-head",
-  1: "bg-white",
-  2: "bg-grid-row-alt",
-};
-
 function ProductRow({
   node,
   depth,
+  tokens,
   expanded,
   onToggle,
 }: {
   node: ProductTreeNodeDto;
   depth: number;
+  tokens: DensityTokens;
   expanded: boolean;
   onToggle: () => void;
 }) {
   const hasChildren = node.children.length > 0;
   const isRoot = node.level === "L0_TOTAL";
   const isParent = !node.isLeaf;
-  const rowBg = DEPTH_BG[depth] ?? "bg-white";
+  // 집계행(전체·브랜드) = 단계 톤, 시즌(리프) = 흰배경. UI 피드백 ②
+  const rowBg = aggRowBg({ isLeaf: node.isLeaf, depth });
   // 브랜드 노드 = 코드 표시명(매핑 미정 → 코드 그대로).
   const displayLabel =
     node.level === "L1_BRAND" && node.brandCode ? brandDisplayName(node.brandCode) : node.label;
@@ -230,7 +237,13 @@ function ProductRow({
   return (
     <tr className={["group border-b border-grid-line hover:bg-grid-hover", rowBg].join(" ")}>
       <td
-        className={["sticky left-0 z-10 border-r border-zinc-200 px-2 py-[7px] text-left", rowBg, "group-hover:bg-grid-hover"].join(" ")}
+        className={[
+          "sticky left-0 z-10 border-r border-zinc-200 text-left",
+          tokens.cellPadX,
+          tokens.cellPadY,
+          rowBg,
+          "group-hover:bg-grid-hover",
+        ].join(" ")}
       >
         <span style={{ paddingLeft: depth * 14 }} className="inline-flex items-center gap-1">
           {hasChildren ? (
@@ -258,7 +271,9 @@ function ProductRow({
           <td
             key={`${c.label}-${i}`}
             className={[
-              "tabnum whitespace-nowrap px-2 py-[7px] text-right",
+              "tabnum whitespace-nowrap text-right",
+              tokens.cellPadX,
+              tokens.cellPadY,
               isGroupStart(i) ? "border-l border-zinc-100" : "",
               isParent ? "font-medium" : "",
               g.suppressed ? "text-zinc-300" : cellTone(c, node.metrics),
