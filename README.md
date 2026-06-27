@@ -89,6 +89,8 @@ npm run dev          # http://localhost:3000  → /engine 으로 랜딩
 | `npm run prisma:migrate` | 마이그레이션(dev) — `DATABASE_URL_UNPOOLED` 필요 |
 | `npm run prisma:deploy` | 마이그레이션(운영) |
 | `npm run prisma:studio` | Prisma Studio |
+| `npm run hooks:install` | git pre-commit 시크릿 스캔 훅 등록(`core.hooksPath .githooks`) |
+| `npm run secret-scan` | 스테이징 변경 시크릿 스캔 1회 실행 |
 
 ## 다음 단계 (이 골격 위에)
 
@@ -106,3 +108,17 @@ npm run dev          # http://localhost:3000  → /engine 으로 랜딩
 - 외부 공유물 마스킹(점포 `00점`·브랜드 `[브랜드]`·실수치 `0.0억`). 실데이터 로컬만.
 - 로그인 도메인 제한 — 명시 allow 없으면 전원 차단(안전한 기본값).
 - 내부 도구. 외부 배포 금지.
+
+### 시크릿 커밋 차단 훅 (권장 — 클론 직후 1회)
+
+```bash
+npm run hooks:install   # git config core.hooksPath .githooks
+```
+
+- 매 커밋 전 스테이징 변경을 스캔해 시크릿 유출을 차단한다(`scripts/precommit-secret-scan.sh`).
+- `.env` 류 파일 스테이징 즉시 차단(`.env.example` 만 허용).
+- [gitleaks](https://github.com/gitleaks/gitleaks) 설치 시 정밀 스캔(`.gitleaks.toml` = 기본 룰셋
+  + Neon `npg_`/Vercel `vcp_`/`AUTH_SECRET`/`SMTP_PASS` 추가 룰). 미설치 시 경량 정규식 폴백.
+- 오탐이면 `git commit --no-verify`(실 시크릿이 아님을 확인 후, 남용 금지).
+- ⚠️ 훅은 우발 커밋 방어용 보조 장치다 — `.gitignore`(`.env*`) 가 1차 방어. 평문 운영 시크릿은
+  로컬 `.env` 에 두지 말고 Vercel 환경변수/시크릿 매니저로 이관 권고.

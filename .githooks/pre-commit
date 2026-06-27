@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# OPR 대시보드 pre-commit 훅 — 시크릿 스캔 위임.
+# 등록: git config core.hooksPath .githooks  (또는 npm run hooks:install)
+sh "$(git rev-parse --show-toplevel)/scripts/precommit-secret-scan.sh"
