@@ -21,6 +21,8 @@ function storeRow(code: string, channel: string): StoreDashRow {
     dotsDays: null,
     seasonPct: null,
     stockRatio: null,
+    dotsDaysDenom: null,
+    seasonPctDenom: null,
     areaPyeong: null,
     baseInvQty: null,
     baseDisplayQty: null,

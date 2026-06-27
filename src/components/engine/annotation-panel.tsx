@@ -12,6 +12,7 @@ import {
 } from "@/lib/annotations";
 import { serializeNodeKey } from "@/lib/annotations/node-key";
 import { type FactKey, type FactRow } from "@/lib/engine";
+import { useDialog } from "@/components/shared/use-dialog";
 
 /**
  * 입력면 패널 — 선택 노드의 목표·전년(수기)·비고·조치 CRUD.
@@ -121,6 +122,9 @@ function PanelBody({
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // 접근성: PanelBody 는 열린 상태에서만 마운트 → useDialog(true) 로 ESC·트랩·포커스 관리.
+  const { ref: dialogRef, titleId, dialogProps } = useDialog(true, onClose);
+
   const periodStart = useMemo(() => {
     // 본문엔 당월 1일 ISO. 서버 upsert 는 본문 periodStart 를 grain 키로 일관 사용.
     const now = new Date();
@@ -189,10 +193,14 @@ function PanelBody({
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
       <button type="button" aria-label="닫기" onClick={onClose} className="flex-1 bg-black/20" />
-      <div className="flex h-full w-full max-w-[460px] flex-col overflow-y-auto border-l border-zinc-200 bg-white shadow-xl">
+      <div
+        ref={dialogRef}
+        {...dialogProps}
+        className="flex h-full w-full max-w-[460px] flex-col overflow-y-auto border-l border-zinc-200 bg-white shadow-xl outline-none"
+      >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white px-5 py-3.5">
           <div>
-            <h2 className="text-[14px] font-semibold text-zinc-800">입력면 — 목표·전년·비고</h2>
+            <h2 id={titleId} className="text-[14px] font-semibold text-zinc-800">입력면 — 목표·전년·비고</h2>
             <p className="text-[11px] text-zinc-400">
               {nodeLabel || "전체 (OPR)"} · {periodType === "CUMULATIVE" ? "누적" : "당월"}
             </p>
