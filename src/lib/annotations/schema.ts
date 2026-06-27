@@ -68,6 +68,21 @@ export const annotationUpsertSchema = z.discriminatedUnion("kind", [
 
 export type AnnotationUpsertInput = z.infer<typeof annotationUpsertSchema>;
 
+/**
+ * 배치 upsert 본문 — annotation 업서트 배열(전부 검증·단일 트랜잭션 all-or-nothing).
+ *
+ * 근거: 백로그 C13. items 비어있으면 거부(no-op 방지). 상한(100)으로 페이로드 폭주 차단.
+ *   각 항목은 단건과 동일 discriminatedUnion 검증 — 하나라도 형식 위반이면 전체 거부.
+ */
+export const annotationBatchSchema = z.object({
+  items: z
+    .array(annotationUpsertSchema)
+    .min(1, "저장할 항목이 없습니다.")
+    .max(100, "한 번에 최대 100건까지 저장할 수 있습니다."),
+});
+
+export type AnnotationBatchInput = z.infer<typeof annotationBatchSchema>;
+
 export const annotationDeleteSchema = z.object({
   id: z.string().min(1),
 });

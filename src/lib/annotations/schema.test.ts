@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { annotationUpsertSchema, annotationDeleteSchema } from "./schema";
+import {
+  annotationUpsertSchema,
+  annotationDeleteSchema,
+  annotationBatchSchema,
+} from "./schema";
 
 describe("annotationUpsertSchema — 입력 검증(zod)", () => {
   const baseKey = { gender: "여성", newcarry: "신상", season: "", item: "" };
@@ -112,5 +116,45 @@ describe("annotationDeleteSchema", () => {
   it("id 필수", () => {
     expect(annotationDeleteSchema.safeParse({ id: "abc" }).success).toBe(true);
     expect(annotationDeleteSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("annotationBatchSchema — 배치 업서트(C13)", () => {
+  const baseKey = { gender: "여성", newcarry: "신상", season: "", item: "" };
+  const target = (metricCode: string, numValue: number) => ({
+    kind: "TARGET" as const,
+    periodType: "MONTH" as const,
+    periodStart: "2026-06-01",
+    key: baseKey,
+    metricCode,
+    numValue,
+  });
+
+  it("유효 항목 배열 통과", () => {
+    const r = annotationBatchSchema.safeParse({
+      items: [target("logiRatio", 0.12), target("sales", 9_500_000_000)],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.items).toHaveLength(2);
+  });
+
+  it("빈 배열 거부(no-op 방지)", () => {
+    expect(annotationBatchSchema.safeParse({ items: [] }).success).toBe(false);
+  });
+
+  it("items 누락 거부", () => {
+    expect(annotationBatchSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("한 항목이라도 형식 위반이면 전체 거부(원자성 — 검증 단계)", () => {
+    const r = annotationBatchSchema.safeParse({
+      items: [target("logiRatio", 0.12), target("해킹코드", 1)],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("100건 초과 거부", () => {
+    const items = Array.from({ length: 101 }, (_, i) => target("logiRatio", i));
+    expect(annotationBatchSchema.safeParse({ items }).success).toBe(false);
   });
 });
