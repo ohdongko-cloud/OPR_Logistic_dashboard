@@ -69,10 +69,33 @@ describe("ratio-guard probe — 매장 엔진", () => {
     expect(guardRatio(1.2, storeRatioDenom("saleMult", normal), min).suppressed).toBe(false);
   });
 
-  it("재고일수·시즌비중 매핑 분모 단위 확인", () => {
+  it("재고일수·시즌비중 매핑 분모 단위 — 재고일수=금액 · 시즌비중=수량(산식 교정)", () => {
     expect(STORE_RATIO_GUARD.dotsDays?.unit).toBe("amount");
-    expect(STORE_RATIO_GUARD.seasonPct?.unit).toBe("amount");
+    // 시즌비중은 summerInvQty/invQty(수량) — 재고액(amount)이 아님(교정됨).
+    expect(STORE_RATIO_GUARD.seasonPct?.unit).toBe("qty");
     expect(STORE_RATIO_GUARD.stockRatio?.unit).toBe("qty");
+  });
+
+  it("재고일수 분모 = carry dotsDaysDenom(일평균원가) — 행종류 무관 실분모 사용", () => {
+    const min = storeRatioMin("dotsDays")!;
+    expect(min).toBe(RATIO_DENOM_MIN.amount);
+    // 일평균원가가 미미(5천원/일) → 보류(601일 같은 극단 차단). 고정 cogsFix 가 아니라 carry 분모.
+    const sparse = { dotsDays: 601, dotsDaysDenom: 5_000 } as never;
+    expect(guardRatio(601, storeRatioDenom("dotsDays", sparse), min).suppressed).toBe(true);
+    // 집계행: 일평균전체원가 충분(2백만/일) → 통과(집계행 정상값 비가림).
+    const normalAgg = { dotsDays: 80, dotsDaysDenom: 2_000_000 } as never;
+    expect(guardRatio(80, storeRatioDenom("dotsDays", normalAgg), min).suppressed).toBe(false);
+  });
+
+  it("시즌비중 분모 = carry seasonPctDenom(재고량·수량) — 재고액 분모 오판 차단", () => {
+    const min = storeRatioMin("seasonPct")!;
+    expect(min).toBe(RATIO_DENOM_MIN.qty);
+    // 재고량 미미(수개) → 보류. (구결함: 재고액 1M↑ 이라 보류 못하던 false-negative 교정.)
+    const sparse = { seasonPct: 0.9, seasonPctDenom: 3 } as never;
+    expect(guardRatio(0.9, storeRatioDenom("seasonPct", sparse), min).suppressed).toBe(true);
+    // 재고량 충분 → 통과.
+    const normal = { seasonPct: 0.4, seasonPctDenom: 5_000 } as never;
+    expect(guardRatio(0.4, storeRatioDenom("seasonPct", normal), min).suppressed).toBe(false);
   });
 });
 

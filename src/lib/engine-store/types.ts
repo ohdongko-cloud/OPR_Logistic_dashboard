@@ -176,6 +176,19 @@ export interface StoreDashRow {
   /** G 재고보유율 — 집계 = T/I · 직영/점포 = P/I (I=기준재고량 하드코딩) */
   stockRatio: number | null;
 
+  // ── 비율 가드용 carry 분모(행종류 분기 실분모 — 희소판정 정확성) ──
+  /**
+   * E 재고일수의 실제 분모(일평균매출원가): 집계=일평균전체원가(AD=cogsAll/C1) · 직영/점포=일평균픽스원가(O=cogsFix/C1).
+   * 단위=금액(원). 가드는 이 값을 직접 써 행종류와 무관하게 정확히 희소판정한다.
+   * null=분모0(IFERROR 공란) — 가드 무관.
+   */
+  dotsDaysDenom: number | null;
+  /**
+   * F 시즌비중의 실제 분모(재고'량'): 집계=전체재고량(T=invQtyAll) · 직영/점포=픽스재고량(P=invQtyFix).
+   * 단위=수량(PCS). (산식이 Q/S 금액이 아니라 summerInvQty/invQty* 수량임 — 가드 단위도 qty.)
+   */
+  seasonPctDenom: number | null;
+
   // 기준 마스터(하드코딩 — 점포 큐레이션 입력)
   /** H 운영평수 */
   areaPyeong: number | null;
