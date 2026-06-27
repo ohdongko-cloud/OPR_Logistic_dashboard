@@ -83,20 +83,25 @@ export async function persistProductSnapshot(
       },
     });
 
+    // 멱등·단일진실원(리뷰 #4): 같은 (fileType=PRODUCT, periodType) 의 **모든** CURRENT 를 강등.
     const supersededId = await prisma.$transaction(async (tx) => {
-      const prev = await tx.snapshot.findFirst({
+      const prevs = await tx.snapshot.findMany({
         where: {
           fileType: "PRODUCT",
           periodType,
-          periodEnd,
           status: "CURRENT",
           id: { not: snapshotId },
         },
         select: { id: true },
       });
-      if (prev) await tx.snapshot.update({ where: { id: prev.id }, data: { status: "SUPERSEDED" } });
+      if (prevs.length > 0) {
+        await tx.snapshot.updateMany({
+          where: { id: { in: prevs.map((p) => p.id) } },
+          data: { status: "SUPERSEDED" },
+        });
+      }
       await tx.snapshot.update({ where: { id: snapshotId }, data: { status: "CURRENT" } });
-      return prev?.id ?? null;
+      return prevs[0]?.id ?? null;
     });
 
     await prisma.ingestLog.create({
