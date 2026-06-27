@@ -166,6 +166,12 @@ model FactKanban {
   mDeadCtr  Decimal @db.Decimal(18, 2) // AC 센터체화금액
   mDeadSto  Decimal @db.Decimal(18, 2) // AI 지점체화금액
 
+  // C10 입출반 금액 — 칸반 AU/BA/BE 존재. 슬라이드5 입고/출고/반품 '금액' 칸 파생.
+  // 하위호환: DEFAULT 0(기존 행·구버전 insert 무영향). 신규 가산 필드.
+  mInAmt  Decimal @default(0) @db.Decimal(18, 2) // AU 입고금액
+  mOutAmt Decimal @default(0) @db.Decimal(18, 2) // BA 출고금액
+  mRetAmt Decimal @default(0) @db.Decimal(18, 2) // BE 반품금액
+
   @@index([snapshotId, gender, newcarry, season, item])
   @@map("fact_kanban")
 }

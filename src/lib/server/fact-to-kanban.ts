@@ -65,6 +65,10 @@ export interface FactKanbanInsert {
   mRetQty: number;
   mDeadCtr: number;
   mDeadSto: number;
+  // C10 입출반 금액(슬5 입고/출고/반품 금액 칸).
+  mInAmt: number;
+  mOutAmt: number;
+  mRetAmt: number;
 }
 
 /** DB 에서 읽은 FactKanban 1행(Decimal 은 string|number|Decimal 가능 → toNum). */
@@ -94,6 +98,10 @@ export interface FactKanbanRow {
   mRetQty: unknown;
   mDeadCtr: unknown;
   mDeadSto: unknown;
+  // C10 입출반 금액(구 스냅샷엔 부재 가능 → toNum 가 null→0).
+  mInAmt?: unknown;
+  mOutAmt?: unknown;
+  mRetAmt?: unknown;
 }
 
 /** Prisma Decimal | string | number → number(소수 손실 없음, Decimal.toString 경유). */
@@ -137,6 +145,9 @@ export function kanbanToFactRows(
     mRetQty: k.bd_retQty,
     mDeadCtr: k.ac_ctrDeadAmt,
     mDeadSto: k.ai_stoDeadAmt,
+    mInAmt: k.au_inAmt, // C10 입고금액
+    mOutAmt: k.ba_outAmt, // C10 출고금액
+    mRetAmt: k.be_retAmt, // C10 반품금액
   }));
 }
 
@@ -176,14 +187,16 @@ export function factRowsToKanban(rows: FactKanbanRow[]): KanbanRow[] {
     ac_ctrDeadAmt: toNum(r.mDeadCtr),
     ai_stoDeadAmt: toNum(r.mDeadSto),
 
+    // C10 입출반 금액(저장됨 — 슬5 금액 칸). 구 스냅샷엔 부재 → toNum(undefined)=0.
+    au_inAmt: toNum(r.mInAmt),
+    ba_outAmt: toNum(r.mOutAmt),
+    be_retAmt: toNum(r.mRetAmt),
+
     // 집계·표시 미사용 필드(저장 안 함) — 0.
     m_qty: 0,
     o_cogs: 0,
     ab_ctrDeadQty: 0,
     ah_stoDeadQty: 0,
-    au_inAmt: 0,
-    ba_outAmt: 0,
-    be_retAmt: 0,
     aw_flowQty: 0,
     aa_ctrAmtPct: 0,
     ay_flowPct: 0,

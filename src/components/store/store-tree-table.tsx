@@ -3,12 +3,13 @@
 import { useMemo, useState } from "react";
 
 import {
+  buildStoreColGroups,
+  DEFAULT_SEASON_LABEL,
   isStoreCritical,
   storeRatioDenom,
   storeRatioMin,
-  STORE_COL_GROUPS,
-  STORE_FLAT_COLS,
   type StoreAggColumn,
+  type StoreColGroup,
   type StoreTreeNodeDto,
 } from "@/lib/engine-store";
 import { fmtDays, fmtEok, fmtMult, fmtNum, fmtPct, fmtQty } from "@/lib/format";
@@ -29,10 +30,17 @@ type SortDir = "desc" | "asc";
 export function StoreTreeTable({
   root,
   query,
+  seasonLabel = DEFAULT_SEASON_LABEL,
 }: {
   root: StoreTreeNodeDto;
   query?: string;
+  /** 스냅샷 시즌명(C12) — "{시즌}재고량" 라벨 동적화. */
+  seasonLabel?: string;
 }) {
+  // 시즌 반영 컬럼 정의(default="여름"=현행). 산식·필드 불변, 라벨만 동적.
+  const colGroups = useMemo(() => buildStoreColGroups(seasonLabel), [seasonLabel]);
+  const flatCols = useMemo(() => colGroups.flatMap((g) => g.cols), [colGroups]);
+
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([root.id]));
   const [sortField, setSortField] = useState<keyof StoreTreeNodeDto["metrics"] | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -106,7 +114,7 @@ export function StoreTreeTable({
               >
                 전체 · 채널 · 점포
               </th>
-              {STORE_COL_GROUPS.map((g) => (
+              {colGroups.map((g) => (
                 <th
                   key={g.title}
                   colSpan={g.cols.length}
@@ -117,7 +125,7 @@ export function StoreTreeTable({
               ))}
             </tr>
             <tr className="bg-grid-head text-[11px] text-zinc-500">
-              {STORE_COL_GROUPS.map((g) =>
+              {colGroups.map((g) =>
                 g.cols.map((c, ci) => {
                   const sorted = sortField === c.field;
                   return (
@@ -154,11 +162,12 @@ export function StoreTreeTable({
                 depth={depth}
                 expanded={effectiveExpanded.has(node.id)}
                 onToggle={() => toggle(node.id)}
+                colGroups={colGroups}
               />
             ))}
             {rows.length <= 1 && query && (
               <tr>
-                <td colSpan={STORE_FLAT_COLS.length + 1} className="px-3 py-6 text-center text-[12px] text-zinc-400">
+                <td colSpan={flatCols.length + 1} className="px-3 py-6 text-center text-[12px] text-zinc-400">
                   &ldquo;{query}&rdquo; 와 일치하는 점포가 없습니다.
                 </td>
               </tr>
@@ -190,12 +199,15 @@ function StoreRow({
   depth,
   expanded,
   onToggle,
+  colGroups,
 }: {
   node: StoreTreeNodeDto;
   depth: number;
   expanded: boolean;
   onToggle: () => void;
+  colGroups: StoreColGroup[];
 }) {
+  const flatCols = colGroups.flatMap((g) => g.cols);
   const hasChildren = node.children.length > 0;
   const isRoot = node.level === "L0_TOTAL";
   const isParent = !node.isLeaf;
@@ -229,14 +241,14 @@ function StoreRow({
         </span>
       </td>
 
-      {STORE_FLAT_COLS.map((c, i) => {
+      {flatCols.map((c, i) => {
         const raw = node.metrics[c.field] as number | null;
         // 희소 분모 가드(판매배수·재고일수·시즌비중·재고보유율).
         const min = storeRatioMin(c.field);
         const denom = storeRatioDenom(c.field, node.metrics);
         const g = guardedText(raw, denom, min, (v) => formatCell(c, v));
         const tone = g.suppressed ? "text-zinc-300" : cellTone(c, raw);
-        const groupStart = isGroupStart(i);
+        const groupStart = isGroupStart(i, colGroups);
         return (
           <td
             key={c.field as string}
@@ -256,9 +268,9 @@ function StoreRow({
   );
 }
 
-function isGroupStart(flatIndex: number): boolean {
+function isGroupStart(flatIndex: number, colGroups: StoreColGroup[]): boolean {
   let acc = 0;
-  for (const g of STORE_COL_GROUPS) {
+  for (const g of colGroups) {
     if (flatIndex === acc) return true;
     acc += g.cols.length;
   }

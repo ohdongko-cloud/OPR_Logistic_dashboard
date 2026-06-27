@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  DEFAULT_SEASON_LABEL,
   storeRatioDenom,
   storeRatioMin,
   STORE_CRITICAL_THRESHOLDS,
@@ -20,10 +21,13 @@ export function StoreKpiStrip({
   metrics,
   periodLabel,
   filterLabel,
+  seasonLabel = DEFAULT_SEASON_LABEL,
 }: {
   metrics: StoreNodeMetrics;
   periodLabel: string;
   filterLabel: string;
+  /** 스냅샷 시즌명(C12) — 시즌비중 KPI 라벨 동적 표기. */
+  seasonLabel?: string;
 }) {
   // 희소 분모 가드(판매배수·재고일수·시즌비중·재고보유율).
   const multG = guardedText(metrics.saleMult, storeRatioDenom("saleMult", metrics), storeRatioMin("saleMult"), fmtMult);
@@ -41,9 +45,9 @@ export function StoreKpiStrip({
     <div className="flex flex-wrap items-stretch gap-x-7 gap-y-3 rounded-lg border border-zinc-200 bg-white px-5 py-3.5">
       <Kpi label="판매배수" value={multG.text} warn={multLow} accent={!multG.suppressed} muted={multG.suppressed} tip={multG.reason} />
       <Kpi label="재고일수" value={daysG.text} warn={daysWarn} muted={daysG.suppressed} tip={daysG.reason} />
-      {/* 계절명 하드코딩 제거 — 컬럼 정의(agg-store-columns seasonPct)와 동일하게 계절 미표기.
-          (가을/겨울 스냅샷에 '여름'이 박히던 오표기 차단. 시즌 동적화는 RAW 메타 도입 시 백로그.) */}
-      <Kpi label="시즌비중" value={seasonG.text} muted={seasonG.suppressed} tip={seasonG.reason} />
+      {/* 시즌명 동적 표기(C12) — 스냅샷 헤더에서 추출한 시즌명을 라벨에 반영(가을/겨울 RAW 정합).
+          '여름' 하드코딩이 아니라 seasonLabel 파라미터(default="여름"=현행). 산식은 시즌 불변. */}
+      <Kpi label={`시즌비중 (${seasonLabel})`} value={seasonG.text} muted={seasonG.suppressed} tip={seasonG.reason} />
       <Kpi label="재고보유율" value={stockG.text} muted={stockG.suppressed} tip={stockG.reason} />
       <Kpi label="(−)재고 수량" value={fmtQty(metrics.negQty)} warn={(metrics.negQty ?? 0) < 0} />
       <Kpi label="(−)재고 금액" value={fmtEok(metrics.negAmt)} warn={negWarn} />

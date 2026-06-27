@@ -203,6 +203,16 @@ export interface FactRow extends FactKey {
   /** AL 지점체화 금액 ← 칸반 AI */
   stoDeadAmt: number;
 
+  // ── C10 입출반 금액(SUM 롤업) — 칸반에 존재(AU/BA/BE)하나 그동안 집계에 미반영.
+  //    대시보드 RAW(센터입출고)에서 수량과 함께 금액도 집계 가능 → 슬라이드5 입출고/반품 '금액' 칸 파생.
+  //    ※기존 19데이터+10파생 필드는 불변(신규 가산 필드 3개 추가뿐 — 아이템 회귀 무영향).
+  /** 입고_벤더 금액 ← 칸반 AU(au_inAmt) */
+  inAmt: number;
+  /** 출고_점 금액 ← 칸반 BA(ba_outAmt) */
+  outAmt: number;
+  /** 반품_센터 금액 ← 칸반 BE(be_retAmt) */
+  retAmt: number;
+
   // ── 10 파생지표(집계 후 행단위 재계산, 비율 합산 금지) ──
   /** G 물류비율 = F/E (null=공란) */
   logiRatio: number | null;

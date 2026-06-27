@@ -12,6 +12,7 @@
 export * from "./types";
 export * from "./raw-columns";
 export * from "./store-name";
+export * from "./season-label";
 export * from "./ingest-store";
 export * from "./stage1-store-kanban";
 export * from "./stage2-store-tree";

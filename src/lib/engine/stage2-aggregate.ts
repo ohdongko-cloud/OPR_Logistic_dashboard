@@ -39,6 +39,9 @@ interface BaseMetrics {
   retQty: number;
   ctrDeadAmt: number;
   stoDeadAmt: number;
+  inAmt: number;
+  outAmt: number;
+  retAmt: number;
 }
 
 const ZERO_BASE: BaseMetrics = {
@@ -61,6 +64,9 @@ const ZERO_BASE: BaseMetrics = {
   retQty: 0,
   ctrDeadAmt: 0,
   stoDeadAmt: 0,
+  inAmt: 0,
+  outAmt: 0,
+  retAmt: 0,
 };
 
 /** 칸반 1행 → 19 데이터지표 매핑(칸반 letter → 대시보드 데이터열). */
@@ -85,6 +91,9 @@ function kanbanToBase(k: KanbanRow): BaseMetrics {
     retQty: k.bd_retQty, // AH ← BD
     ctrDeadAmt: k.ac_ctrDeadAmt, // AJ ← AC
     stoDeadAmt: k.ai_stoDeadAmt, // AL ← AI
+    inAmt: k.au_inAmt, // C10 입고금액 ← AU
+    outAmt: k.ba_outAmt, // C10 출고금액 ← BA
+    retAmt: k.be_retAmt, // C10 반품금액 ← BE
   };
 }
 

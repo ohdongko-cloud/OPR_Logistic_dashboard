@@ -4,8 +4,9 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  buildStoreColGroups,
+  DEFAULT_SEASON_LABEL,
   flattenStoreAggTree,
-  STORE_COL_GROUPS,
   type StoreChannel,
   type StoreTreeNodeDto,
 } from "@/lib/engine-store";
@@ -21,6 +22,8 @@ interface StoreAggResponse {
   view: "store";
   period: "MONTH" | "CUMULATIVE";
   periodLabel: string;
+  /** 스냅샷 시즌명(C12) — 시즌비중/시즌재고 라벨 동적화. */
+  seasonLabel?: string;
   filter: { channel?: StoreChannel };
   tree: StoreTreeNodeDto;
   meta: { storeCount: number; nodeCount: number; builtAtMs: number; source: "db" | "livefile" };
@@ -71,13 +74,14 @@ export function StoreView() {
   const cumulativeRequested = params.get("period") === "cumulative";
 
   const filterText = useMemo(() => (channel ? channel : "전체 채널"), [channel]);
+  const seasonLabel = data?.seasonLabel ?? DEFAULT_SEASON_LABEL;
 
   const onExport = useCallback(() => {
     if (!data) return;
     const flat = flattenStoreAggTree(data.tree);
     exportStoreTreeToXlsx(
       flat,
-      { periodLabel: data.periodLabel, filterLabel: filterText },
+      { periodLabel: data.periodLabel, filterLabel: filterText, seasonLabel: data.seasonLabel },
       `OPR_매장SCM_${data.periodLabel}_${new Date().toISOString().slice(0, 10)}`,
     );
   }, [data, filterText]);
@@ -107,6 +111,7 @@ export function StoreView() {
             metrics={data.tree.metrics}
             periodLabel={data.periodLabel}
             filterLabel={filterText}
+            seasonLabel={seasonLabel}
           />
         )}
 
@@ -150,13 +155,13 @@ export function StoreView() {
           </div>
         )}
 
-        {data && <StoreTreeTable root={data.tree} query={query} />}
+        {data && <StoreTreeTable root={data.tree} query={query} seasonLabel={seasonLabel} />}
 
         {/* 컬럼 범례(엑셀 추적) */}
         {data && (
           <p className="text-[10px] text-zinc-300">
             컬럼 그룹:{" "}
-            {STORE_COL_GROUPS.map((g) => g.title).join(" · ")}
+            {buildStoreColGroups(seasonLabel).map((g) => g.title).join(" · ")}
           </p>
         )}
       </div>

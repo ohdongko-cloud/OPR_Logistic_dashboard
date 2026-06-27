@@ -20,6 +20,7 @@ import {
   STORE_RAW_DATA_START,
   ERR_CODE_BLOCK,
 } from "./raw-columns";
+import { resolveSeasonLabel, type SeasonName } from "./season-label";
 import { type StoreRoster } from "./stage1-store-kanban";
 import {
   STORE_CHANNELS,
@@ -52,6 +53,11 @@ export interface StoreIngestResult {
   roster: StoreRoster[];
   curation: StoreCuration;
   errors: StoreErrorIndex;
+  /**
+   * 스냅샷 시즌명(C12) — 칸반/대시보드 헤더 텍스트에서 추출(여름/가을/겨울/봄).
+   * "해당 시즌+공통 재고" 비중·재고 라벨의 동적 표기 진실원천. 미탐지 시 "여름"(현행).
+   */
+  seasonLabel: SeasonName;
 }
 
 /** 시트명 후보(부분일치) → 첫 매칭 워크시트. */
@@ -153,6 +159,7 @@ export function ingestStoreFile(bytes: Uint8Array): StoreIngestResult {
     roster: [],
     curation: { codes: [], masters: {} },
     errors: { byCode: new Map(), byName: new Map() },
+    seasonLabel: "여름",
   });
 
   const wb = XLSX.read(bytes, {
@@ -280,11 +287,23 @@ export function ingestStoreFile(bytes: Uint8Array): StoreIngestResult {
     roster.push({ storeCode: code, channel: channel as StoreChannel, storeName: name });
   }
 
+  // ── 스냅샷 시즌명(C12) — 헤더 텍스트에서 추출(우선순위: 칸반 G6/P6 > 대시 O3/F2 > "여름") ──
+  // 칸반 헤더행 = 6행(0-based 5). 대시 헤더행 = 3행(O3)·2행(F2).
+  const cellAt = (aoa: unknown[][], col: string, row1: number): string =>
+    cellStr((aoa[row1 - 1] ?? [])[colIdx(col)]);
+  const seasonLabel: SeasonName = resolveSeasonLabel([
+    cellAt(kbAoa, "G", 6), // 칸반 "여름비중"
+    cellAt(kbAoa, "P", 6), // 칸반 "여름/공통\n재고량"
+    cellAt(dashAoa, "O", 3), // 대시 "여름재고량"
+    cellAt(dashAoa, "F", 2), // 대시 "여름,공통"
+  ]);
+
   return {
     ok: true,
     raw: { sales, endInv, openInv, flow },
     roster,
     curation,
     errors,
+    seasonLabel,
   };
 }

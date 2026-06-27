@@ -11,18 +11,18 @@ import * as XLSX from "xlsx";
 import {
   brandDisplayName,
   productColLabel,
+  productRatioDenom,
+  productRatioMin,
   PRODUCT_FLAT_COLS,
   type ProductCol,
   type ProductTreeNodeDto,
 } from "@/lib/engine-product";
+import { guardedExportCell } from "@/lib/export-guard";
 
-/** auto 셀 표시값(format). na/manual 은 placeholder. */
-function cellValue(col: ProductCol, node: ProductTreeNodeDto): string | number {
-  if (col.kind === "na") return "—(원천 필요)";
-  if (col.kind === "manual") return "(수기)";
-  const v = node.metrics[col.field] as number | null;
+/** auto format → 셀 표시값(빈값은 ""). */
+function fmtAuto(format: string, v: number | null): string | number {
   if (v == null) return "";
-  switch (col.format) {
+  switch (format) {
     case "eok":
       return Number((v / 1e8).toFixed(2));
     case "pct":
@@ -34,6 +34,20 @@ function cellValue(col: ProductCol, node: ProductTreeNodeDto): string | number {
     default:
       return Number(v.toFixed(2));
   }
+}
+
+/**
+ * auto 셀 표시값. na/manual 은 placeholder(가짜값 금지 — 그대로).
+ * C14: auto 비율 컬럼(가드 매핑)은 화면(product-tree-table)과 동일 희소-분모 보류("—").
+ *   비-비율 auto(입고량·재고량 등)는 가드 미매핑 → 원시값 그대로.
+ */
+export function productCellValue(col: ProductCol, node: ProductTreeNodeDto): string | number {
+  if (col.kind === "na") return "—(원천 필요)";
+  if (col.kind === "manual") return "(수기)";
+  const min = productRatioMin(col.field);
+  const denom = productRatioDenom(col.field, node.metrics);
+  const raw = node.metrics[col.field] as number | null;
+  return guardedExportCell(raw, denom, min, (v) => fmtAuto(col.format, v));
 }
 
 function unitOf(col: ProductCol): string {
@@ -70,7 +84,7 @@ export function exportProductTreeToXlsx(
       node.level === "L1_BRAND" && node.brandCode
         ? brandDisplayName(node.brandCode)
         : node.label;
-    const cells = PRODUCT_FLAT_COLS.map((c) => cellValue(c, node));
+    const cells = PRODUCT_FLAT_COLS.map((c) => productCellValue(c, node));
     rows.push([`${indent}${label}`, node.brandCode ?? "", ...cells]);
   }
 
