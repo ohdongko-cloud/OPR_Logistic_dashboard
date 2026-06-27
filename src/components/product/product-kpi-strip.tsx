@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  periodPrefixOf,
   productRatioDenom,
   productRatioMin,
   type ProductNodeMetrics,
@@ -11,8 +12,11 @@ import { guardedText } from "@/components/shared/guarded-ratio";
 /**
  * 상품 KPI 요약 스트립(레퍼런스 BI 양식 — 상단 가로 일렬).
  *
- * 항목 = 자동 8필드 中 전체 요약 핵심: 입고량 · 재고량 · 누적출고량 · 누적출고율 ·
- *   누적판매량 · 입고비판매율 · 누적매총율. 값 = 루트(전체/브랜드 필터요약) 집계.
+ * 항목 = 자동 8필드 中 전체 요약 핵심: 입고량 · 재고량 · {누적|당월}출고량 · {누적|당월}출고율 ·
+ *   {누적|당월}판매량 · 입고비판매율 · {누적|당월}매총율. 값 = 루트(전체/브랜드 필터요약) 집계.
+ *
+ * ★기간 접두는 periodLabel 에 종속(데이터=라벨 단일진실원) — 당월 스냅샷이면 "당월…",
+ *   누적이면 "누적…". 컬럼 헤더(product-tree-table)와 동일 규칙.
  */
 export function ProductKpiStrip({
   metrics,
@@ -28,15 +32,18 @@ export function ProductKpiStrip({
   const saleVsInG = guardedText(metrics.saleVsIn, productRatioDenom("saleVsIn", metrics), productRatioMin("saleVsIn"), fmtPct);
   const grossG = guardedText(metrics.grossRate, productRatioDenom("grossRate", metrics), productRatioMin("grossRate"), fmtPct);
 
+  // 기간 접두("누적"/"당월") — periodLabel 종속(데이터=라벨 일치).
+  const p = periodPrefixOf(periodLabel);
+
   return (
     <div className="flex flex-wrap items-stretch gap-x-6 gap-y-3 rounded-lg border border-zinc-200 bg-white px-5 py-3.5">
       <Kpi label="입고량" value={fmtQty(metrics.inQty)} />
       <Kpi label="재고량" value={fmtQty(metrics.invQty)} />
-      <Kpi label="누적출고량" value={fmtQty(metrics.outQty)} />
-      <Kpi label="누적출고율" value={outRateG.text} accent={!outRateG.suppressed} muted={outRateG.suppressed} tip={outRateG.reason} />
-      <Kpi label="누적판매량" value={fmtQty(metrics.saleQty)} />
+      <Kpi label={`${p}출고량`} value={fmtQty(metrics.outQty)} />
+      <Kpi label={`${p}출고율`} value={outRateG.text} accent={!outRateG.suppressed} muted={outRateG.suppressed} tip={outRateG.reason} />
+      <Kpi label={`${p}판매량`} value={fmtQty(metrics.saleQty)} />
       <Kpi label="입고비판매율" value={saleVsInG.text} accent={!saleVsInG.suppressed} muted={saleVsInG.suppressed} tip={saleVsInG.reason} />
-      <Kpi label="누적매총율" value={grossG.text} muted={grossG.suppressed} tip={grossG.reason} />
+      <Kpi label={`${p}매총율`} value={grossG.text} muted={grossG.suppressed} tip={grossG.reason} />
 
       <div className="ml-auto flex flex-col justify-center border-l border-zinc-100 pl-6 text-right">
         <span className="text-[10px] uppercase tracking-wide text-zinc-400">스냅샷</span>

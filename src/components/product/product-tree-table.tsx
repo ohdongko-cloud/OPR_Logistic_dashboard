@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import {
   brandDisplayName,
+  productColLabel,
   productRatioDenom,
   productRatioMin,
   PRODUCT_COL_GROUPS,
@@ -32,9 +33,12 @@ type AutoField = keyof ProductNodeMetrics;
 export function ProductTreeTable({
   root,
   query,
+  periodLabel,
 }: {
   root: ProductTreeNodeDto;
   query?: string;
+  /** "누적"/"당월" — periodPrefix 컬럼 헤더의 동적 접두(데이터=라벨 일치). */
+  periodLabel: string;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([root.id]));
   const [sortField, setSortField] = useState<AutoField | null>(null);
@@ -140,9 +144,9 @@ export function ProductTreeTable({
                           "inline-flex items-center gap-0.5 hover:text-zinc-800",
                           sortField === c.field ? "text-accent" : "",
                         ].join(" ")}
-                        title={`${c.label} — 출처: ${c.source} · 정렬`}
+                        title={`${productColLabel(c, periodLabel)} — 출처: ${c.source} · 정렬`}
                       >
-                        {c.label}
+                        {productColLabel(c, periodLabel)}
                         <span className="text-[9px]">
                           {sortField === c.field ? (sortDir === "desc" ? "▼" : "▲") : "↕"}
                         </span>

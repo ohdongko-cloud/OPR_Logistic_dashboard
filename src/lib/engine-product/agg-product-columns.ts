@@ -26,6 +26,13 @@ export interface ProductAutoCol {
   /** 출처 추적(스펙 §2). */
   source: string;
   defaultVisible: boolean;
+  /**
+   * 기간 접두("누적"/"당월")를 라벨 앞에 동적 부착할지.
+   * true 인 컬럼은 `label` 이 접두 없는 베이스(예 "출고량")이며,
+   * productColLabel(col, periodLabel) 이 "{누적|당월}출고량" 으로 렌더한다.
+   * (데이터=라벨 단일진실원 — 슬3·4 누적뷰/당월 토글 모두에서 라벨이 데이터와 일치.)
+   */
+  periodPrefix?: boolean;
 }
 
 /** na 컬럼 — 원천 부재, placeholder("—"). */
@@ -88,12 +95,12 @@ export const PRODUCT_COL_GROUPS: ProductColGroup[] = [
     cols: [
       { kind: "na", label: "출고속도", reason: "출고 리드타임 — 일자 부재" },
       { kind: "na", label: "출고일수", reason: "일자 부재" },
-      { kind: "auto", field: "outQty", label: "누적출고량", format: "qty", source: "센터입출고 M(점간출고량)", defaultVisible: true },
-      { kind: "auto", field: "outRate", label: "누적출고율", format: "pct", source: "(파생) 출고÷입고", defaultVisible: true },
-      { kind: "auto", field: "saleQty", label: "누적판매량", format: "qty", source: "매출상세 J(판매수량)", defaultVisible: true },
+      { kind: "auto", field: "outQty", label: "출고량", format: "qty", source: "센터입출고 M(점간출고량)", defaultVisible: true, periodPrefix: true },
+      { kind: "auto", field: "outRate", label: "출고율", format: "pct", source: "(파생) 출고÷입고", defaultVisible: true, periodPrefix: true },
+      { kind: "auto", field: "saleQty", label: "판매량", format: "qty", source: "매출상세 J(판매수량)", defaultVisible: true, periodPrefix: true },
       { kind: "auto", field: "saleVsOut", label: "출고비판매율", format: "pct", source: "(파생) 판매÷출고", defaultVisible: true },
       { kind: "auto", field: "saleVsIn", label: "입고비판매율", format: "pct", source: "(파생) 판매÷입고", defaultVisible: true },
-      { kind: "auto", field: "grossRate", label: "누적매총율", format: "pct", source: "(파생) (매출−원가)÷매출", defaultVisible: true },
+      { kind: "auto", field: "grossRate", label: "매총율", format: "pct", source: "(파생) (매출−원가)÷매출", defaultVisible: true, periodPrefix: true },
     ],
   },
   {
@@ -124,3 +131,25 @@ export const PRODUCT_FIELD_COUNTS = {
   na: PRODUCT_FLAT_COLS.filter((c) => c.kind === "na").length,
   manual: PRODUCT_FLAT_COLS.filter((c) => c.kind === "manual").length,
 };
+
+/**
+ * 기간 접두("누적"/"당월")를 정규화 — periodLabel 이 "누적"/"당월"(또는 MONTH/CUMULATIVE)이든
+ * 항상 "누적"/"당월" 한글 접두로 매핑. 데이터(=API periodLabel)와 라벨을 단일 진실원화.
+ */
+export function periodPrefixOf(periodLabel: string): "누적" | "당월" {
+  const s = periodLabel.trim();
+  if (s === "누적" || s.toUpperCase() === "CUMULATIVE") return "누적";
+  return "당월";
+}
+
+/**
+ * 컬럼 표시 라벨 — periodPrefix 컬럼은 "{누적|당월}" 접두를 동적 부착.
+ * 그 외 컬럼은 정적 label 그대로. (헤더·KPI·엑셀이 같은 함수로 일관 렌더.)
+ */
+export function productColLabel(
+  col: { label: string; periodPrefix?: boolean },
+  periodLabel: string,
+): string {
+  if (col.periodPrefix) return `${periodPrefixOf(periodLabel)}${col.label}`;
+  return col.label;
+}
