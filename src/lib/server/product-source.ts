@@ -20,12 +20,11 @@ import { buildProductFacts, type ProductFactRow } from "@/lib/engine-product";
 import { ingestFiles } from "@/lib/ingest";
 import { getPrisma } from "@/lib/prisma";
 
+import { resolveDataDir } from "./data-dir";
 import { loadCurrentProduct } from "./persist-product";
 
 export type ProductPeriod = "MONTH" | "CUMULATIVE";
 export type ProductSource = "db" | "livefile";
-
-const DEFAULT_DATA_DIR = "D:/vibe/OPR_Logistic_auto03/05_대시보드 원본 파일";
 
 /** period → 아이템 실파일명(상품 RAW 공유). */
 const PRODUCT_FILE_NAMES: Record<ProductPeriod, string> = {
@@ -50,7 +49,8 @@ export interface ResolvedProduct {
 }
 
 function dataDir(): string {
-  return process.env.OPR_DATA_DIR ?? DEFAULT_DATA_DIR;
+  // OPR_DATA_DIR 우선 · dev 폴백 · prod 미설정 throw(신뢰경계 — data-dir.ts).
+  return resolveDataDir();
 }
 
 function productFilePath(period: ProductPeriod): string {

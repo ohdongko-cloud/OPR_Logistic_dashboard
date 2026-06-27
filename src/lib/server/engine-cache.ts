@@ -5,7 +5,7 @@
  *       대시보드_설계_v1.md §4-1(당월/누적 = 앵커만 상이) · spec 부록C(앵커).
  *
  * ⚠️ 실데이터 파일은 레포에 커밋하지 않는다(보안). 서버 런타임에서 절대경로로 "읽기만".
- *    경로는 env.OPR_DATA_DIR 로 재정의 가능(미설정 시 문서상 기본경로).
+ *    경로 = env.OPR_DATA_DIR(우선). 미설정 시 dev 폴백, production 은 fail-fast(resolveDataDir).
  *    파일이 없으면 명시적 에러(클라엔 안전 메시지) — 시크릿·실데이터 누출 없음.
  *
  * 캐시: period_type(MONTH|CUMULATIVE) → { kanban, mtimeMs }. 파일 mtime 변경 시 무효화.
@@ -23,8 +23,7 @@ import {
   type PeriodType,
 } from "@/lib/engine";
 
-/** 문서상 기본 데이터 폴더(서버 로컬 — 커밋 대상 아님). */
-const DEFAULT_DATA_DIR = "D:/vibe/OPR_Logistic_auto03/05_대시보드 원본 파일";
+import { resolveDataDir } from "./data-dir";
 
 /** period → 실파일명. */
 const FILE_NAMES: Record<PeriodType, string> = {
@@ -39,7 +38,8 @@ const ANCHORS: Record<PeriodType, PeriodAnchors> = {
 };
 
 function dataDir(): string {
-  return process.env.OPR_DATA_DIR ?? DEFAULT_DATA_DIR;
+  // OPR_DATA_DIR 우선 · 미설정 시 dev 폴백 · prod 미설정 throw(신뢰경계 — data-dir.ts).
+  return resolveDataDir();
 }
 
 export function periodFilePath(period: PeriodType): string {
