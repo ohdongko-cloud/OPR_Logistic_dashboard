@@ -17,7 +17,8 @@ type Step = "email" | "code";
 export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const callbackUrl = params.get("callbackUrl") || "/engine";
+  // 로그인 후 기본 랜딩 = 대시보드 홈(개요). callbackUrl 보존(보호경로 진입 시도).
+  const callbackUrl = params.get("callbackUrl") || "/home";
 
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");

@@ -2,9 +2,8 @@
  * 전역 네비게이션(탭) 정의 — 설계문서 §1 화면 맵 기준.
  *
  * 3뷰(①물류 핵심지표 = 아이템 엔진 드릴다운 / ②매장 SCM / ③상품 SCM) + 관리자.
- * 랜딩 = ① 물류 핵심지표(엔진 드릴다운). (§7 Q1 가정 — 사용자 확정 대기)
- *
- * 지금은 라우트 자리만. 각 화면 본문/위젯은 다음 단계 구현.
+ * 랜딩 = 대시보드 홈(개요). 홈에서 3영역 요약·경보를 보고 각 뷰로 드릴다운.
+ *   (당초 §7 Q1 가정은 엔진 랜딩이었으나, 작업지시로 홈 개요 랜딩으로 전환.)
  */
 export type NavItem = {
   href: string;
@@ -24,14 +23,14 @@ export type NavItem = {
  * 대시보드 · 데이터 업로드 · 물류 핵심지표(활성) · 매장 SCM · 상품 SCM · 관리자.
  */
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "대시보드", view: "home", icon: "▦", stub: true },
+  { href: "/home", label: "대시보드", view: "home", icon: "▦" },
   { href: "/upload", label: "데이터 업로드", view: "upload", icon: "↥" },
   { href: "/engine", label: "물류 핵심지표", view: "engine", icon: "◧" },
   { href: "/store", label: "매장 SCM", view: "store", icon: "▤" },
   { href: "/product", label: "상품 SCM", view: "product", icon: "◫" },
   { href: "/input", label: "입력면(물류비예측)", view: "input", icon: "✎" },
-  { href: "/admin", label: "관리자", view: "admin", icon: "⚙", adminOnly: true, stub: true },
+  { href: "/admin", label: "관리자", view: "admin", icon: "⚙", adminOnly: true },
 ];
 
-/** 랜딩 경로(설계 §1: 엔진 드릴다운). */
-export const LANDING_PATH = "/engine";
+/** 랜딩 경로(작업지시: 대시보드 홈 개요). 루트 `/` 는 여기로 리다이렉트. */
+export const LANDING_PATH = "/home";
