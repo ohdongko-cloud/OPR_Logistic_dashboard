@@ -215,6 +215,20 @@ describe("Stage1 — 칸반 SUMIF 흡수 + 물류비 안분(순서의존)", () =
     expect(leafA.deadStoPct).toBeCloseTo(50 / 500, 9);
   });
 
+  it("C10: 입출반 금액(inAmt/outAmt/retAmt) FactRow 에 SUM 롤업 — 슬5 c20/c22/c24 파생", () => {
+    const leaves = aggregateLeaf(kanban);
+    const leafA = leaves.find((r) => r.gender === "여성" && r.item === "잡화류")!;
+    // SKU A 단독 집계: 입고금액 AU=900 · 출고금액 BA=800 · 반품금액 BE=100.
+    expect(leafA.inAmt).toBe(900);
+    expect(leafA.outAmt).toBe(800);
+    expect(leafA.retAmt).toBe(100);
+    // 전체 롤업 = A(여성)+B(남성) 금액 합(가산 정합).
+    const total = rollup(kanban, { gender: "", newcarry: "", season: "", item: "" }, "L0_TOTAL", () => true);
+    expect(total.inAmt).toBe(900 + 1800); // B 입고금액 H=1800
+    expect(total.outAmt).toBe(800 + 1600); // B 출고금액 L=1600
+    expect(total.retAmt).toBe(100 + 200); // B 반품금액 J=200
+  });
+
   it("파생 분모0 → null(공란)", () => {
     const empty = rollup(kanban, { gender: "X", newcarry: "", season: "", item: "" }, "L5_ITEM", () => false);
     expect(empty.logiRatio).toBeNull();

@@ -173,4 +173,26 @@ describe("fact-to-kanban 라운드트립 (DB 경로 = 라이브파일 경로)", 
       expect(tol(r.retQty, o.retQty), `${r.skuKey}.retQty`).toBe(true);
     }
   });
+
+  it("C10: 입출반 금액(au_inAmt/ba_outAmt/be_retAmt)이 DB 라운드트립 후 보존(이전엔 0으로 유실)", () => {
+    const facts = kanbanToFactRows(kanban, snapshotId);
+    // insert 입력에 금액 3필드가 박혀야 함(persist → DB 저장).
+    expect(facts[0]).toHaveProperty("mInAmt");
+    expect(facts[0]).toHaveProperty("mOutAmt");
+    expect(facts[0]).toHaveProperty("mRetAmt");
+
+    const restored = factRowsToKanban(facts);
+    const byKey = new Map(restored.map((k) => [k.skuKey, k]));
+    let checked = 0;
+    for (const o of kanban) {
+      const r = byKey.get(o.skuKey);
+      if (!r) continue;
+      const tol = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * (1 + Math.abs(a));
+      expect(tol(r.au_inAmt, o.au_inAmt), `${o.skuKey}.au_inAmt`).toBe(true);
+      expect(tol(r.ba_outAmt, o.ba_outAmt), `${o.skuKey}.ba_outAmt`).toBe(true);
+      expect(tol(r.be_retAmt, o.be_retAmt), `${o.skuKey}.be_retAmt`).toBe(true);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
 });

@@ -20,8 +20,9 @@
  *
  * 값 단위 = 슬라이드1 formatPptCell 과 동일(재사용).
  *   현재값: 엔진 FactRow. 목표/전년: Annotation(numValue, 동일 단위 가정). 1분기: annotation 없음 → 공란.
- *   입고/출고/반품 "금액"(c20/c22/c24): 엔진 FactRow 에 금액 필드 없음(수량만) → 공란.
- *   고객속도(c25~c28): 엔진 미산출(spec) → 공란/수기. 조치(c29): Annotation ACTION.
+ *   입고/출고/반품 "금액"(c20/c22/c24): C10 — 칸반 AU/BA/BE → FactRow.inAmt/outAmt/retAmt 주입(mio).
+ *   고객속도(c25~c28): 엔진 미산출(spec, 원천 부재) → 공란/수기. 조치(c29): Annotation ACTION.
+ *   1분기(c05): annotation 종류 미지원 → 공란 유지(가짜값 금지).
  */
 
 import type { FactRow } from "@/lib/engine";
@@ -58,12 +59,15 @@ export const SLIDE5_CURRENT_COLS: Array<{
   { col: 17, field: "deadCtrPct", scale: "pct0", label: "체화비중" },
   { col: 18, field: "ctrDeadAmt", scale: "mio", label: "체화금액" },
   { col: 19, field: "inQty", scale: "qty", label: "입고수량" },
-  // c20 입고금액 — 엔진 금액필드 없음 → 공란
+  // c20 입고금액 — C10: 엔진 FactRow.inAmt(칸반 AU SUM 롤업) 주입.
+  { col: 20, field: "inAmt", scale: "mio", label: "입고금액" },
   { col: 21, field: "outQty", scale: "qty", label: "출고수량" },
-  // c22 출고금액 — 공란
+  // c22 출고금액 — C10: FactRow.outAmt(칸반 BA).
+  { col: 22, field: "outAmt", scale: "mio", label: "출고금액" },
   { col: 23, field: "retQty", scale: "qty", label: "반품수량" },
-  // c24 반품금액 — 공란
-  // c25~c28 고객속도(입고/상품화·피킹/출고 전년/현재) — 엔진 미산출 → 공란/수기
+  // c24 반품금액 — C10: FactRow.retAmt(칸반 BE).
+  { col: 24, field: "retAmt", scale: "mio", label: "반품금액" },
+  // c25~c28 고객속도(입고/상품화·피킹/출고 전년/현재) — 엔진 미산출(원천 부재) → 공란/수기 유지.
 ];
 
 /** annotation 주입 셀 종류. */
