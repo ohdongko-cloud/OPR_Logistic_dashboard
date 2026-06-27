@@ -101,7 +101,11 @@ export function resolveStoreRow(
         rows.find((r) => r.level === "L1_CHANNEL" && r.code === match.channel) ?? null
       );
     case "storeOrder": {
-      const stores = rows.filter((r) => r.level === "L2_STORE");
+      // 슬2 점포 표(r04~r17)는 직영 14점 전용 — 채널을 직영으로 좁힌다.
+      // (큐레이션에 비직영 점포가 섞여도 직영 표에 엉뚱한 채널 점포가 들어가지 않도록.)
+      const stores = rows.filter(
+        (r) => r.level === "L2_STORE" && r.channel === "직영",
+      );
       return stores[match.order] ?? null;
     }
     default:
