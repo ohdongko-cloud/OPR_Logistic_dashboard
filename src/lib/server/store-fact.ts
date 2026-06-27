@@ -69,6 +69,8 @@ export interface FactStoreInsert {
   baseDisplayQty: number | null;
   baseRunQty: number | null;
   isCard: boolean;
+  /** 큐레이션 카드 순번(codes 인덱스). 비카드 = 0. PPT 슬2 점포-행 순서 결정. */
+  cardSeq: number;
   mNegQty: number | null;
   mNegAmt: number | null;
 }
@@ -101,7 +103,7 @@ function blankInsert(snapshotId: string, code: string, channel: string): FactSto
     mSaleQtyAll: 0, mSaleAmtAll: 0, mCogsAll: 0, mInvQtyAll: 0, mInvAmtAll: 0,
     mOpenQtyAll: 0, mOpenAmtAll: 0,
     areaPyeong: null, baseInvQty: null, baseDisplayQty: null, baseRunQty: null,
-    isCard: false, mNegQty: null, mNegAmt: null,
+    isCard: false, cardSeq: 0, mNegQty: null, mNegAmt: null,
   };
 }
 
@@ -116,6 +118,10 @@ export function storeKanbanToFactRows(
   curation: StoreCuration,
   errors: StoreErrorIndex,
 ): FactStoreInsert[] {
+  // 큐레이션 카드 순번 맵(codes 등장 순서 = PPT 슬2 점포-행 위치). 비카드행은 0.
+  const cardSeqByCode = new Map<string, number>();
+  curation.codes.forEach((code, i) => cardSeqByCode.set(code, i));
+
   const pointRows = kanban.map((k) => {
     const master = curation.masters[k.storeCode] ?? {
       areaPyeong: null,
@@ -160,7 +166,8 @@ export function storeKanbanToFactRows(
       baseInvQty: master.baseInvQty,
       baseDisplayQty: master.baseDisplayQty,
       baseRunQty: master.baseRunQty,
-      isCard: curation.codes.includes(k.storeCode),
+      isCard: cardSeqByCode.has(k.storeCode),
+      cardSeq: cardSeqByCode.get(k.storeCode) ?? 0,
       mNegQty: neg.negQty,
       mNegAmt: neg.negAmt,
     };
@@ -223,6 +230,8 @@ export interface FactStoreRow {
   baseDisplayQty: unknown;
   baseRunQty: unknown;
   isCard: boolean;
+  /** 큐레이션 카드 순번(codes 인덱스). 레거시 행(컬럼 부재) = 0. */
+  cardSeq?: unknown;
   mNegQty: unknown;
   mNegAmt: unknown;
 }
@@ -304,12 +313,19 @@ export function factRowsToStore(allRows: FactStoreRow[], params: StoreParams): R
       baseRunQty: toNumOrNull(r.baseRunQty),
     };
     curation.masters[r.storeCode] = master;
-    if (r.isCard) curation.codes.push(r.storeCode);
     const neg = { negQty: toNumOrNull(r.mNegQty), negAmt: toNumOrNull(r.mNegAmt) };
     errors.byName.set(normalizeStoreName(r.storeName), neg);
     totalNegQty += neg.negQty ?? 0;
     totalNegAmt += neg.negAmt ?? 0;
   }
+  // 큐레이션 codes 는 cardSeq(저장된 등장 순서) ASC 로 복원 — findMany 비결정 순서에 강건.
+  // (라이브파일 경로의 codes 순서와 비트단위 일치 → PPT 슬2 점포-행 매핑 결정적.)
+  curation.codes.push(
+    ...rows
+      .filter((r) => r.isCard)
+      .sort((a, b) => toNum(a.cardSeq) - toNum(b.cardSeq))
+      .map((r) => r.storeCode),
+  );
   // 집계 마스터행(전체/직영/중관/기타) → curation.masters + 코드키 (−)재고 복원.
   for (const a of aggRows) {
     curation.masters[a.storeCode] = {

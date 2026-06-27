@@ -97,20 +97,25 @@ export async function persistStoreSnapshot(
       },
     });
 
+    // 멱등·단일진실원(리뷰 #4): 같은 (fileType=STORE, periodType) 의 **모든** CURRENT 를 강등.
     const supersededId = await prisma.$transaction(async (tx) => {
-      const prev = await tx.snapshot.findFirst({
+      const prevs = await tx.snapshot.findMany({
         where: {
           fileType: "STORE",
           periodType,
-          periodEnd,
           status: "CURRENT",
           id: { not: snapshotId },
         },
         select: { id: true },
       });
-      if (prev) await tx.snapshot.update({ where: { id: prev.id }, data: { status: "SUPERSEDED" } });
+      if (prevs.length > 0) {
+        await tx.snapshot.updateMany({
+          where: { id: { in: prevs.map((p) => p.id) } },
+          data: { status: "SUPERSEDED" },
+        });
+      }
       await tx.snapshot.update({ where: { id: snapshotId }, data: { status: "CURRENT" } });
-      return prev?.id ?? null;
+      return prevs[0]?.id ?? null;
     });
 
     await prisma.ingestLog.create({
@@ -155,7 +160,12 @@ export async function loadCurrentStore(
     select: { id: true },
   });
   if (!snap) return null;
-  const facts = await prisma.factStore.findMany({ where: { snapshotId: snap.id } });
+  // cardSeq ASC 정렬로 큐레이션 카드 순서 결정성 확보(PPT 슬2 점포-행 매핑 박제).
+  // factRowsToStore 도 cardSeq 로 재정렬하지만 쿼리 단계에서 안정 순서를 명시(이중 방어).
+  const facts = await prisma.factStore.findMany({
+    where: { snapshotId: snap.id },
+    orderBy: { cardSeq: "asc" },
+  });
   if (facts.length === 0) return null;
 
   const { factRowsToStore } = await import("./store-fact");
