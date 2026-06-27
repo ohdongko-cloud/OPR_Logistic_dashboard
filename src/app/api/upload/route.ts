@@ -37,37 +37,21 @@ import {
   detectFileKind,
   extractAnchors,
   ingestFiles,
+  MAX_SINGLE_FILE_BYTES,
+  MAX_TOTAL_BYTES,
   type UploadFileInput,
 } from "@/lib/ingest";
 import { getPrisma } from "@/lib/prisma";
+import { clearEngineCache } from "@/lib/server/engine-cache";
+import { resolvePeriodRange } from "@/lib/server/period-range";
 import { persistProductSnapshot } from "@/lib/server/persist-product";
 import { persistSnapshot } from "@/lib/server/persist";
 import { persistStoreSnapshot } from "@/lib/server/persist-store";
+import { clearProductCache } from "@/lib/server/product-source";
+import { clearStoreCache } from "@/lib/server/store-source";
 
 export const runtime = "nodejs"; // SheetJS = Node 런타임 필요(엣지 X)
 export const dynamic = "force-dynamic";
-
-/** period 기간(start/end) 산출 — 폼 우선, 없으면 합리적 기본(당월=월초~말·누적=연초~). */
-function resolvePeriodRange(
-  periodType: PeriodType,
-  startStr: string | null,
-  endStr: string | null,
-): { periodStart: Date; periodEnd: Date } {
-  const parse = (s: string | null): Date | null => {
-    if (!s) return null;
-    const d = new Date(s);
-    return Number.isNaN(d.getTime()) ? null : d;
-  };
-  const end = parse(endStr) ?? new Date();
-  const explicitStart = parse(startStr);
-  if (explicitStart) return { periodStart: explicitStart, periodEnd: end };
-  // start 미상 → 당월=월초, 누적=연초.
-  const start =
-    periodType === "CUMULATIVE"
-      ? new Date(Date.UTC(end.getUTCFullYear(), 0, 1))
-      : new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
-  return { periodStart: start, periodEnd: end };
-}
 
 /** 폼 앵커 오버라이드(3값 모두 유효할 때만). 없으면 null → 자동추출 사용. */
 function formAnchors(form: FormData): PeriodAnchors | null {
@@ -171,7 +155,34 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  // 2) 바이트 로드
+  // 2a) 크기 사전검증 — 바이트를 메모리에 읽기 **전에** f.size 로 게이트(리뷰 #7).
+  //     개별 50MB·누적 100MB 초과 시 413(메모리 할당 자체를 막아 DoS 방지).
+  let totalSize = 0;
+  for (const f of fileEntries) {
+    if (f.size > MAX_SINGLE_FILE_BYTES) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "payload_too_large",
+          detail: `파일 ${f.name} 이(가) ${(f.size / 1024 / 1024).toFixed(1)}MB 로 상한 ${MAX_SINGLE_FILE_BYTES / 1024 / 1024}MB 를 초과합니다.`,
+        },
+        { status: 413 },
+      );
+    }
+    totalSize += f.size;
+  }
+  if (totalSize > MAX_TOTAL_BYTES) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "payload_too_large",
+        detail: `총 업로드 ${(totalSize / 1024 / 1024).toFixed(1)}MB 가 상한 ${MAX_TOTAL_BYTES / 1024 / 1024}MB 를 초과합니다.`,
+      },
+      { status: 413 },
+    );
+  }
+
+  // 2b) 바이트 로드(크기 통과분만).
   const loaded: LoadedFile[] = [];
   for (const f of fileEntries) {
     const buf = new Uint8Array(await f.arrayBuffer());
@@ -202,6 +213,10 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   const outcomes: PersistOutcome[] = [];
   const errors: Array<{ file: string; detail: string }> = [];
+  /** 같은 요청 내 중복(같은 종류·기간) — 1건만 적재하고 나머지는 경고(침묵손실 방지, 리뷰 #5). */
+  const skipped: Array<{ file: string; detail: string }> = [];
+  /** 적재 키(kind|periodType|periodEnd) — 첫 파일만 통과, 이후 중복은 SKIPPED. */
+  const seenKeys = new Set<string>();
 
   // 5) 파일별 종류 판별 → 적재.
   for (const lf of loaded) {
@@ -226,6 +241,18 @@ export async function POST(req: Request): Promise<NextResponse> {
         : (detected.period ?? "MONTH");
 
       const { periodStart, periodEnd } = resolvePeriodRange(periodType, startStr, endStr);
+
+      // 같은 요청에서 동일 (종류·기간) 가 2건+이면 첫 1건만 적재(나머지는 SKIPPED).
+      // (둘째 파일의 supersede 가 방금 만든 첫째 CURRENT 를 조용히 강등하는 침묵손실 차단.)
+      const dedupKey = `${kind}|${periodType}|${periodEnd.toISOString().slice(0, 10)}`;
+      if (seenKeys.has(dedupKey)) {
+        skipped.push({
+          file: lf.name,
+          detail: `동일 기간(${periodType}) ${kind === "item" ? "아이템" : "매장"} 파일 중복 — 1건만 적재됩니다(이 파일은 건너뜀).`,
+        });
+        continue;
+      }
+      seenKeys.add(dedupKey);
 
       if (kind === "store") {
         // ── 매장 파일 → ingestStore → persistStoreSnapshot(STORE) ──
@@ -326,8 +353,19 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
   }
 
-  // 6) 응답 — 부분 성공 허용(파일별 결과·오류 모두 반환).
+  // 5b) 라이브파일 인메모리 캐시 무효화(리뷰 #8) — DB CURRENT 가 갱신됐으므로 폴백 캐시가
+  //     stale 옛 파싱결과를 내지 않도록. 아이템 적재 = 엔진(슬1·5)+상품 둘 다, 매장 = 매장.
+  if (outcomes.some((o) => o.fileType === "ITEM" || o.fileType === "PRODUCT")) {
+    clearEngineCache();
+    clearProductCache();
+  }
+  if (outcomes.some((o) => o.fileType === "STORE")) {
+    clearStoreCache();
+  }
+
+  // 6) 응답 — 부분 성공 허용(파일별 결과·오류·건너뜀 모두 반환).
   const anyLoaded = outcomes.length > 0;
+  const skippedNote = skipped.length > 0 ? ` (중복 ${skipped.length}건 건너뜀)` : "";
   return NextResponse.json(
     {
       ok: errors.length === 0 && anyLoaded,
@@ -336,10 +374,11 @@ export async function POST(req: Request): Promise<NextResponse> {
       uploadedBy: uploader.email ?? null,
       outcomes,
       errors,
+      skipped,
       note: anyLoaded
         ? errors.length === 0
-          ? "적재 완료 — CURRENT 스냅샷 갱신."
-          : "일부 파일만 적재됨(오류 확인)."
+          ? `적재 완료 — CURRENT 스냅샷 갱신.${skippedNote}`
+          : `일부 파일만 적재됨(오류 확인).${skippedNote}`
         : "적재된 파일이 없습니다(오류 확인).",
     },
     { status: anyLoaded ? 200 : 422 },
