@@ -6,6 +6,7 @@
  */
 
 import { type StoreNodeMetrics } from "./agg-store-tree";
+import { DEFAULT_SEASON_LABEL, seasonInvQtyLabel } from "./season-label";
 
 export type StoreColFormat = "eok" | "pct" | "days" | "qty" | "mult";
 
@@ -26,50 +27,65 @@ export interface StoreColGroup {
   cols: StoreAggColumn[];
 }
 
-export const STORE_COL_GROUPS: StoreColGroup[] = [
-  {
-    title: "운영지표",
-    cols: [
-      { field: "saleMult", label: "판매배수", excelCol: "D", format: "mult", defaultVisible: true, critical: "multLow" },
-      { field: "dotsDays", label: "재고일수", excelCol: "E", format: "days", defaultVisible: true, critical: "daysHigh" },
-      { field: "seasonPct", label: "시즌비중", excelCol: "F", format: "pct", defaultVisible: true },
-      { field: "stockRatio", label: "재고보유율", excelCol: "G", format: "mult", defaultVisible: true },
-    ],
-  },
-  {
-    title: "(−)마이너스재고",
-    cols: [
-      { field: "negQty", label: "(−)수량", excelCol: "V", format: "qty", defaultVisible: true, critical: "negative" },
-      { field: "negAmt", label: "(−)금액", excelCol: "W", format: "eok", defaultVisible: true, critical: "negative" },
-    ],
-  },
-  {
-    title: "입고·판매(픽스)",
-    cols: [
-      { field: "inQtyFix", label: "입고량", excelCol: "H", format: "qty", defaultVisible: false },
-      { field: "saleQtyFix", label: "판매량", excelCol: "L", format: "qty", defaultVisible: true },
-    ],
-  },
-  {
-    title: "재고(픽스)",
-    cols: [
-      { field: "summerInvQty", label: "여름재고량", excelCol: "P", format: "qty", defaultVisible: false },
-      { field: "invQtyFix", label: "재고량", excelCol: "R", format: "qty", defaultVisible: true },
-      { field: "invAmtFix", label: "재고액", excelCol: "S", format: "eok", defaultVisible: false },
-    ],
-  },
-  {
-    title: "입고·판매·재고(전체)",
-    cols: [
-      { field: "inQtyAll", label: "입고량", excelCol: "W", format: "qty", defaultVisible: false },
-      { field: "saleQtyAll", label: "판매량", excelCol: "AA", format: "qty", defaultVisible: false },
-      { field: "invQtyAll", label: "기말재고량", excelCol: "AE", format: "qty", defaultVisible: false },
-      { field: "invAmtAll", label: "기말재고액", excelCol: "AF", format: "eok", defaultVisible: false },
-    ],
-  },
-];
+/**
+ * 컬럼 그룹 빌더(C12 시즌 파라미터화) — 시즌명에 따라 "{시즌}재고량" 라벨 동적 생성.
+ *   season default="여름" → 현행 라벨과 비트단위 동일(순수 일반화). 산식·필드·excelCol 불변.
+ *   (시즌비중(seasonPct)은 이미 계절 미표기 — 가을/겨울 스냅샷 오표기 차단, 라벨 그대로 "시즌비중".)
+ */
+export function buildStoreColGroups(season: string = DEFAULT_SEASON_LABEL): StoreColGroup[] {
+  return [
+    {
+      title: "운영지표",
+      cols: [
+        { field: "saleMult", label: "판매배수", excelCol: "D", format: "mult", defaultVisible: true, critical: "multLow" },
+        { field: "dotsDays", label: "재고일수", excelCol: "E", format: "days", defaultVisible: true, critical: "daysHigh" },
+        { field: "seasonPct", label: "시즌비중", excelCol: "F", format: "pct", defaultVisible: true },
+        { field: "stockRatio", label: "재고보유율", excelCol: "G", format: "mult", defaultVisible: true },
+      ],
+    },
+    {
+      title: "(−)마이너스재고",
+      cols: [
+        { field: "negQty", label: "(−)수량", excelCol: "V", format: "qty", defaultVisible: true, critical: "negative" },
+        { field: "negAmt", label: "(−)금액", excelCol: "W", format: "eok", defaultVisible: true, critical: "negative" },
+      ],
+    },
+    {
+      title: "입고·판매(픽스)",
+      cols: [
+        { field: "inQtyFix", label: "입고량", excelCol: "H", format: "qty", defaultVisible: false },
+        { field: "saleQtyFix", label: "판매량", excelCol: "L", format: "qty", defaultVisible: true },
+      ],
+    },
+    {
+      title: "재고(픽스)",
+      cols: [
+        { field: "summerInvQty", label: seasonInvQtyLabel(season), excelCol: "P", format: "qty", defaultVisible: false },
+        { field: "invQtyFix", label: "재고량", excelCol: "R", format: "qty", defaultVisible: true },
+        { field: "invAmtFix", label: "재고액", excelCol: "S", format: "eok", defaultVisible: false },
+      ],
+    },
+    {
+      title: "입고·판매·재고(전체)",
+      cols: [
+        { field: "inQtyAll", label: "입고량", excelCol: "W", format: "qty", defaultVisible: false },
+        { field: "saleQtyAll", label: "판매량", excelCol: "AA", format: "qty", defaultVisible: false },
+        { field: "invQtyAll", label: "기말재고량", excelCol: "AE", format: "qty", defaultVisible: false },
+        { field: "invAmtAll", label: "기말재고액", excelCol: "AF", format: "eok", defaultVisible: false },
+      ],
+    },
+  ];
+}
+
+/** 현행(여름) 정적 그룹 — 하위호환(시즌 미지정 호출부). buildStoreColGroups("여름")와 동일. */
+export const STORE_COL_GROUPS: StoreColGroup[] = buildStoreColGroups();
 
 export const STORE_FLAT_COLS: StoreAggColumn[] = STORE_COL_GROUPS.flatMap((g) => g.cols);
+
+/** 시즌 반영 평탄 컬럼(엑셀 내보내기·화면 — 시즌 라벨 동적). */
+export function buildStoreFlatCols(season: string = DEFAULT_SEASON_LABEL): StoreAggColumn[] {
+  return buildStoreColGroups(season).flatMap((g) => g.cols);
+}
 
 /** 임계 휴리스틱(목표 미입력 시). */
 export const STORE_CRITICAL_THRESHOLDS = {

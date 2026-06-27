@@ -79,6 +79,8 @@ export async function GET(req: Request): Promise<NextResponse> {
       view: "store",
       period,
       periodLabel: period === "CUMULATIVE" ? "누적" : "당월",
+      // 스냅샷 시즌명(C12) — 시즌비중/시즌재고 라벨 동적 표기용.
+      seasonLabel: resolved.seasonLabel,
       filter: { channel },
       tree,
       meta: {

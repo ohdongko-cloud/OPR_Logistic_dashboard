@@ -15,8 +15,10 @@ import path from "node:path";
 
 import {
   buildStoreKanban,
+  DEFAULT_SEASON_LABEL,
   ingestStoreFile,
   MONTH_STORE_PARAMS,
+  type SeasonName,
   type StoreCuration,
   type StoreErrorIndex,
   type StoreKanbanRow,
@@ -58,6 +60,11 @@ export interface ResolvedStore {
   params: StoreParams;
   source: StoreSource;
   snapshotId?: string;
+  /**
+   * 스냅샷 시즌명(C12) — 라벨 동적 표기용. livefile 경로는 헤더에서 추출,
+   * DB 경로는 스냅샷에 시즌 메타가 없어 default("여름"). (DB 시즌 보존은 후속 과제.)
+   */
+  seasonLabel: SeasonName;
 }
 
 function dataDir(): string {
@@ -74,6 +81,7 @@ interface CacheEntry {
   kanban: StoreKanbanRow[];
   curation: StoreCuration;
   errors: StoreErrorIndex;
+  seasonLabel: SeasonName;
   mtimeMs: number;
 }
 const cache = new Map<StorePeriod, CacheEntry>();
@@ -97,7 +105,14 @@ function getStoreFromFile(period: StorePeriod): ResolvedStore {
   const mtimeMs = statSync(filePath).mtimeMs;
   const cached = cache.get(period);
   if (cached && cached.mtimeMs === mtimeMs) {
-    return { kanban: cached.kanban, curation: cached.curation, errors: cached.errors, params, source: "livefile" };
+    return {
+      kanban: cached.kanban,
+      curation: cached.curation,
+      errors: cached.errors,
+      params,
+      source: "livefile",
+      seasonLabel: cached.seasonLabel,
+    };
   }
   const buf = readFileSync(filePath);
   const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -106,8 +121,21 @@ function getStoreFromFile(period: StorePeriod): ResolvedStore {
     throw new StoreDataError("ingest_failed", ingest.blockedReason ?? "매장 파일 검증 실패.");
   }
   const kanban = buildStoreKanban({ raw: ingest.raw, params, roster: ingest.roster });
-  cache.set(period, { kanban, curation: ingest.curation, errors: ingest.errors, mtimeMs });
-  return { kanban, curation: ingest.curation, errors: ingest.errors, params, source: "livefile" };
+  cache.set(period, {
+    kanban,
+    curation: ingest.curation,
+    errors: ingest.errors,
+    seasonLabel: ingest.seasonLabel,
+    mtimeMs,
+  });
+  return {
+    kanban,
+    curation: ingest.curation,
+    errors: ingest.errors,
+    params,
+    source: "livefile",
+    seasonLabel: ingest.seasonLabel,
+  };
 }
 
 /** 캐시 비우기(테스트·핫리로드). */
@@ -133,6 +161,8 @@ export async function resolveStore(period: StorePeriod): Promise<ResolvedStore> 
           params,
           source: "db",
           snapshotId: current.snapshotId,
+          // DB 스냅샷은 시즌 메타 미보존 → default("여름"). (DB 시즌 보존은 후속 과제.)
+          seasonLabel: DEFAULT_SEASON_LABEL,
         };
       }
     } catch (e) {
