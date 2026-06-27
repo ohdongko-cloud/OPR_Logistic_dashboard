@@ -19,6 +19,7 @@ import Credentials from "next-auth/providers/credentials";
 
 import { authConfigEdge, authSecret } from "@/auth.config";
 import { verifyOtpForEmail } from "@/lib/auth/otp-store";
+import { checkVerifyRate, rateKey } from "@/lib/auth/verify-rate-limit";
 import { isEmailAllowed } from "@/lib/auth/allowlist";
 import { env } from "@/lib/env";
 import { getPrisma } from "@/lib/prisma";
@@ -26,6 +27,14 @@ import { getPrisma } from "@/lib/prisma";
 /** 이메일 정규화(소문자·트림). */
 function normEmail(raw: string): string {
   return raw.trim().toLowerCase();
+}
+
+/** 요청 헤더에서 클라이언트 IP 추출(x-forwarded-for 첫 홉 → x-real-ip). */
+function clientIp(req: Request | undefined): string | null {
+  if (!req) return null;
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) return xff.split(",")[0]!.trim();
+  return req.headers.get("x-real-ip");
 }
 
 /** 이 이메일이 마스터 관리자인가(env). */
@@ -48,15 +57,22 @@ export const authConfig: NextAuthConfig = {
       },
       /**
        * OTP 검증 → 통과 시 User upsert. 실패 시 null(=인증 거부).
-       * 도메인 가드 + OTP 검증 + 최초가입/마스터 role 결정.
+       * 도메인 가드 + (이메일+IP)레이트리밋 + OTP 검증 + 최초가입/마스터 role 결정.
        */
-      async authorize(creds) {
+      async authorize(creds, req) {
         const email = normEmail(String(creds?.email ?? ""));
         const code = String(creds?.code ?? "");
         if (!email || !code) return null;
 
         // 도메인 가드(서버단 거부).
         if (!isEmailAllowed(email)) return null;
+
+        // 검증 레이트리밋(이메일+IP 슬라이딩 윈도) — 교차이메일 합산 추측·고빈도 콜백 차단.
+        const ip = clientIp(req as Request | undefined);
+        if (!checkVerifyRate(rateKey(email, ip)).allowed) {
+          // 초과 즉시 거부(코드 검증 미수행). 운영 외부노출 시 캡차 추가 권고.
+          return null;
+        }
 
         const prisma = getPrisma();
         if (!prisma || !authSecret) return null;
