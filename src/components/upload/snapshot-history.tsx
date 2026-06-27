@@ -1,12 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+
+import { useDialog } from "@/components/shared/use-dialog";
 
 /**
  * 스냅샷 이력 목록 — fileType·period별 CURRENT/SUPERSEDED·업로더·시각·fact수.
  *
  * 근거: GET /api/snapshots(logistics VIEW). 업로드 직후 refreshKey 변경으로 재조회.
- *   메타만 표시(실수치 미포함). 롤백(복원 토글)은 fast-follow.
+ *   메타만 표시(실수치 미포함).
+ *
+ * C11 롤백: SUPERSEDED 행에 "복원" 버튼(확인 다이얼로그) → POST /api/snapshots/[id]/restore.
+ *   입력(업로드) 권한자(input MANAGE)만 노출 — 서버 게이트와 동일. 성공 시 이력·대시보드 재조회.
  */
 
 interface SnapRow {
@@ -46,11 +51,23 @@ function fmtDateTime(s: string): string {
   return d.toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" });
 }
 
-export function SnapshotHistory({ refreshKey = 0 }: { refreshKey?: number }) {
+interface SnapshotHistoryProps {
+  refreshKey?: number;
+  /** 복원 성공 시 부모에 통지(대시보드 재조회 트리거용). */
+  onRestored?: () => void;
+}
+
+export function SnapshotHistory({ refreshKey = 0, onRestored }: SnapshotHistoryProps) {
   const [rows, setRows] = useState<SnapRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<"ALL" | "ITEM" | "STORE" | "PRODUCT">("ALL");
+  // 입력(업로드 MANAGE) 권한자만 복원 버튼 노출 — 서버 게이트(input MANAGE)와 동일.
+  const [canRestore, setCanRestore] = useState(false);
+  // 복원 확인 대상(다이얼로그).
+  const [confirmRow, setConfirmRow] = useState<SnapRow | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
 
   const load = useCallback(async (ft: typeof filterType) => {
     setErr(null);
@@ -83,6 +100,45 @@ export function SnapshotHistory({ refreshKey = 0 }: { refreshKey?: number }) {
     };
   }, [load, filterType, refreshKey]);
 
+  // 복원 권한(canUpload = input MANAGE) 1회 조회 — UI 게이트(실제 강제는 서버 guardTab).
+  useEffect(() => {
+    const ac = new AbortController();
+    fetch("/api/me", { signal: ac.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setCanRestore(Boolean(j?.canUpload)))
+      .catch(() => setCanRestore(false));
+    return () => ac.abort();
+  }, []);
+
+  const doRestore = useCallback(
+    async (row: SnapRow) => {
+      setRestoring(true);
+      setRestoreMsg(null);
+      try {
+        const res = await fetch(`/api/snapshots/${encodeURIComponent(row.id)}/restore`, {
+          method: "POST",
+        });
+        const json = await res.json().catch(() => ({ ok: false }));
+        if (res.status === 403) {
+          setErr("복원 권한이 없습니다(입력 MANAGE 필요).");
+        } else if (!res.ok || !json.ok) {
+          setErr(json.detail ?? "복원에 실패했습니다.");
+        } else {
+          setRestoreMsg(json.detail ?? "복원되었습니다.");
+          setErr(null);
+          await load(filterType); // 이력 재조회(상태 전환 반영).
+          onRestored?.(); // 대시보드 재조회 트리거.
+        }
+      } catch {
+        setErr("복원 중 네트워크 오류");
+      } finally {
+        setRestoring(false);
+        setConfirmRow(null);
+      }
+    },
+    [load, filterType, onRestored],
+  );
+
   return (
     <div className="max-w-[760px] rounded-lg border border-zinc-200 bg-white p-5">
       <div className="mb-3 flex items-center justify-between">
@@ -113,6 +169,11 @@ export function SnapshotHistory({ refreshKey = 0 }: { refreshKey?: number }) {
           {err}
         </p>
       )}
+      {restoreMsg && (
+        <p className="mt-1 rounded border border-green-200 bg-green-50 px-3 py-2 text-[12px] text-green-700">
+          {restoreMsg}
+        </p>
+      )}
 
       {loading ? (
         <p className="py-4 text-center text-[12px] text-zinc-400">불러오는 중…</p>
@@ -130,6 +191,7 @@ export function SnapshotHistory({ refreshKey = 0 }: { refreshKey?: number }) {
                 <th className="px-3 py-1.5 text-right font-medium">fact수</th>
                 <th className="px-3 py-1.5 text-left font-medium">업로더</th>
                 <th className="px-3 py-1.5 text-left font-medium">업로드 시각</th>
+                {canRestore && <th className="px-3 py-1.5 text-right font-medium">롤백</th>}
               </tr>
             </thead>
             <tbody>
@@ -161,6 +223,24 @@ export function SnapshotHistory({ refreshKey = 0 }: { refreshKey?: number }) {
                   <td className="px-3 py-1.5 text-[10.5px] text-zinc-500">
                     {fmtDateTime(r.uploadedAt)}
                   </td>
+                  {canRestore && (
+                    <td className="px-3 py-1.5 text-right">
+                      {r.status === "SUPERSEDED" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRestoreMsg(null);
+                            setConfirmRow(r);
+                          }}
+                          className="rounded border border-accent/40 px-2 py-0.5 text-[10.5px] text-accent hover:bg-accent/5"
+                        >
+                          복원
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-zinc-300">—</span>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -169,8 +249,78 @@ export function SnapshotHistory({ refreshKey = 0 }: { refreshKey?: number }) {
       )}
       <p className="mt-2 text-[10px] text-zinc-400">
         멱등 적재 — 같은 종류·기간 재업로드 시 이전 CURRENT 가 SUPERSEDED 로 보존됩니다(이력 삭제 없음).
-        SUPERSEDED 복원(롤백)은 후속 제공.
+        {canRestore && " 잘못 올린 경우 SUPERSEDED 행을 복원해 이전 CURRENT 로 되돌릴 수 있습니다."}
       </p>
+
+      {confirmRow && (
+        <RestoreConfirmDialog
+          row={confirmRow}
+          busy={restoring}
+          onConfirm={() => doRestore(confirmRow)}
+          onCancel={() => setConfirmRow(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** 복원 확인 다이얼로그 — useDialog(ESC·포커스 트랩·dialog 시맨틱) 재사용. */
+function RestoreConfirmDialog({
+  row,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  row: SnapRow;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const { ref, titleId, dialogProps } = useDialog(true, onCancel);
+  const descId = useId();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <button
+        type="button"
+        aria-label="닫기"
+        onClick={onCancel}
+        className="absolute inset-0 bg-black/30"
+      />
+      <div
+        ref={ref}
+        {...dialogProps}
+        aria-describedby={descId}
+        className="relative z-10 w-full max-w-[400px] rounded-lg border border-zinc-200 bg-white p-5 shadow-xl outline-none"
+      >
+        <h2 id={titleId} className="text-[14px] font-semibold text-zinc-800">
+          스냅샷 복원
+        </h2>
+        <p id={descId} className="mt-2 text-[12px] text-zinc-600">
+          이 {FILE_TYPE_LABEL[row.fileType] ?? row.fileType} ·{" "}
+          {row.periodType === "CUMULATIVE" ? "누적" : "당월"} 스냅샷(
+          {fmtDate(row.periodStart)} ~ {fmtDate(row.periodEnd)})을 현재(CURRENT)로 되돌립니다.
+          현재 CURRENT 는 SUPERSEDED 로 강등되며 이력은 보존됩니다.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="rounded-md border border-zinc-300 px-3 py-1.5 text-[12px] text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? "복원 중…" : "복원"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

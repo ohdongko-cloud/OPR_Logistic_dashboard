@@ -87,18 +87,27 @@ export interface UpsertParams {
 }
 
 /**
- * grain(kind, period, 노드키, metricCode) 멱등 upsert.
- * 동일 grain 존재 시 값·작성자·updatedAt 갱신, 없으면 생성.
+ * Annotation upsert 가 쓰는 최소 클라이언트 표면.
+ * PrismaClient 와 트랜잭션 클라이언트($transaction 콜백 인자) 양쪽을 받는다
+ * (배치 원자화 — 동일 tx 위에서 findFirst→update/create 가 일관 실행되도록).
  */
-export async function upsertAnnotation(
-  prisma: PrismaClient,
+type AnnotationClient = {
+  annotation: Pick<PrismaClient["annotation"], "findFirst" | "update" | "create">;
+};
+
+/**
+ * grain(kind, period, 노드키, metricCode) 멱등 upsert — 주어진 클라이언트(또는 tx) 위에서 실행.
+ * 동일 grain 존재 시 값·작성자·updatedAt 갱신, 없으면 생성. 배치/단건 공통 코어.
+ */
+async function upsertAnnotationOn(
+  client: AnnotationClient,
   p: UpsertParams,
 ): Promise<AnnotationDto> {
   const cols = nodeKeyToDbCols(p.key);
   // REMARK/ACTION 은 metricCode 가 없으므로 null 로 매칭(노드당 1건).
   const metricCode = p.metricCode ?? null;
 
-  const existing = await prisma.annotation.findFirst({
+  const existing = await client.annotation.findFirst({
     where: {
       kind: p.kind,
       periodType: p.periodType,
@@ -119,12 +128,12 @@ export async function upsertAnnotation(
   };
 
   const row = existing
-    ? await prisma.annotation.update({
+    ? await client.annotation.update({
         where: { id: existing.id },
         data,
         include: { author: { select: { email: true } } },
       })
-    : await prisma.annotation.create({
+    : await client.annotation.create({
         data: {
           kind: p.kind,
           periodType: p.periodType,
@@ -140,6 +149,47 @@ export async function upsertAnnotation(
       });
 
   return toDto(row);
+}
+
+/**
+ * grain 멱등 upsert(단건) — 기존 호출부 호환 표면. 내부는 코어(upsertAnnotationOn) 위임.
+ */
+export async function upsertAnnotation(
+  prisma: PrismaClient,
+  p: UpsertParams,
+): Promise<AnnotationDto> {
+  return upsertAnnotationOn(prisma, p);
+}
+
+/**
+ * 배치 upsert — 입력 배열 전부를 **단일 트랜잭션**으로 멱등 upsert(all-or-nothing).
+ *
+ * 근거: 백로그 C13 — Promise.all(N 단건 POST) 의 부분저장(일부만 반영) 근본 제거.
+ *   하나라도 실패하면 prisma.$transaction 이 전부 롤백 → "성공=전체반영 / 실패=무반영".
+ *
+ * 작성자(authorId)는 호출부(라우트)가 세션에서 주입한 값을 각 항목에 박아 넣는다(클라 신뢰 금지).
+ */
+export async function upsertAnnotationsBatch(
+  prisma: PrismaClient,
+  items: UpsertParams[],
+): Promise<AnnotationDto[]> {
+  return prisma.$transaction(async (tx) =>
+    // 순차 실행 — 같은 tx 위에서 grain 멱등(동일 grain 중복 입력도 마지막 값으로 수렴).
+    // (병렬 시 같은 grain 의 findFirst 가 둘 다 미존재로 보고 중복 create 할 위험 → 순차.)
+    sequentialUpsert(tx, items),
+  );
+}
+
+/** tx 위에서 항목을 순차 upsert(grain 멱등 보장). */
+async function sequentialUpsert(
+  tx: AnnotationClient,
+  items: UpsertParams[],
+): Promise<AnnotationDto[]> {
+  const out: AnnotationDto[] = [];
+  for (const it of items) {
+    out.push(await upsertAnnotationOn(tx, it));
+  }
+  return out;
 }
 
 /** 주석 삭제(입력 취소). 입력면 데이터 — 물리삭제 허용. */

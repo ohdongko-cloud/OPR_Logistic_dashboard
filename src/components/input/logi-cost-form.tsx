@@ -36,7 +36,6 @@ export function LogiCostForm() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [warn, setWarn] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const total = useMemo(
@@ -52,7 +51,6 @@ export function LogiCostForm() {
     setSaving(true);
     setErr(null);
     setMsg(null);
-    setWarn(null);
     const toPost = COST_ITEMS.map((it) => ({ key: it.key, label: it.label, raw: values[it.key] })).filter(
       (e) => e.raw != null && e.raw.trim() !== "" && Number.isFinite(Number(e.raw)),
     );
@@ -61,45 +59,34 @@ export function LogiCostForm() {
       setSaving(false);
       return;
     }
+
+    // C13: 단일 배치 요청 — 7대 비용을 한 트랜잭션으로 원자 저장(부분저장 불가).
+    const items = toPost.map((e) => ({
+      kind: "LOGI_COST" as const,
+      periodType,
+      periodStart,
+      key: { gender: "", newcarry: "", season: "", item: "" },
+      metricCode: e.key,
+      numValue: Number(e.raw),
+    }));
+
     try {
-      const results = await Promise.all(
-        toPost.map((e) =>
-          fetch("/api/annotations", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              kind: "LOGI_COST",
-              periodType,
-              periodStart,
-              key: { gender: "", newcarry: "", season: "", item: "" },
-              metricCode: e.key,
-              numValue: Number(e.raw),
-            }),
-          })
-            .then((r) => r.json().then((j) => ({ ok: r.ok && j.ok, status: r.status, detail: j.detail, label: e.label })))
-            .catch(() => ({ ok: false, status: 0, detail: "네트워크 오류", label: e.label })),
-        ),
-      );
-
-      const total = results.length;
-      const okN = results.filter((r) => r.ok).length;
-      const forbidden = results.some((r) => r.status === 403);
-      const reasons = results
-        .filter((r) => !r.ok)
-        .map((r) => `${r.label}: ${r.status === 403 ? "권한 없음(INPUT 필요)" : r.detail ?? "저장 실패"}`);
-
-      if (okN === total) {
-        setMsg(`물류비예측이 저장되었습니다(${okN}건).`);
-      } else if (okN > 0) {
-        // 부분성공 — 성공분은 이미 서버 반영. 실패분 사유 명시.
-        setWarn(`${okN}/${total}건 저장됨 · 일부 실패: ${reasons.join(" / ")}`);
-      } else if (forbidden) {
+      const r = await fetch("/api/annotations/batch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 403) {
         setErr("입력 권한이 없습니다(INPUT 필요).");
+      } else if (!r.ok || !j.ok) {
+        // 원자성: 실패 = 무반영.
+        setErr(`저장 실패: ${j.detail ?? "알 수 없는 오류"}`);
       } else {
-        setErr(`저장 실패: ${reasons.join(" / ") || "알 수 없는 오류"}`);
+        setMsg(`물류비예측이 저장되었습니다(${j.count ?? items.length}건).`);
       }
     } catch {
-      setErr("네트워크 오류");
+      setErr("네트워크 오류로 저장하지 못했습니다(반영되지 않았습니다).");
     } finally {
       setSaving(false);
     }
@@ -161,9 +148,6 @@ export function LogiCostForm() {
 
       {err && (
         <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-600">{err}</p>
-      )}
-      {warn && (
-        <p className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-700">{warn}</p>
       )}
       {msg && (
         <p className="mt-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-[12px] text-green-700">{msg}</p>
