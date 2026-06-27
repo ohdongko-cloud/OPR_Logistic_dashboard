@@ -6,8 +6,11 @@
  *
  * 파라미터: period_type = 당월(기본) | 누적 (또는 MONTH|CUMULATIVE)
  *
- * 채움 범위(현 단계): 슬라이드1(① 물류 핵심지표 1P) — 30 데이터행 × 20 데이터열.
- *   슬라이드 2(매장 SCM)·3·4(상품 SCM)·5(목표대비) = fast-follow(템플릿 빈칸 유지).
+ * 채움 범위:
+ *   슬1(① 물류 핵심지표 1P) — 아이템 엔진 30행×20열.
+ *   슬2(② 매장 SCM)         — 매장 엔진 전체/직영/점포14 × 매장 열(매장 데이터 있을 때).
+ *   슬5(⑤ 목표 대비)        — 아이템 엔진 현재값 + Annotation(목표·전년·조치, DB 있을 때).
+ *   슬3·4(③ 상품 SCM)       — 행↔노드 매핑 마스터 부재로 공란 유지(가짜값 금지).
  *
  * 인가: 출력면(logistics VIEW) — 인증 + VIEW 게이트(requireTab).
  * 보안: 실데이터는 서버 메모리만(영속화/외부반출 없음). 템플릿은 마스킹본.
@@ -16,10 +19,16 @@
 import { NextResponse } from "next/server";
 
 import { guardTab } from "@/lib/authz";
+import { buildAnnotationOverlay } from "@/lib/annotations/overlay";
+import { listAnnotations } from "@/lib/annotations/repo";
+import { buildStoreDashboard, type StoreDashRow } from "@/lib/engine-store";
 import { parsePeriod, periodLabel } from "@/lib/engine";
+import { getPrisma } from "@/lib/prisma";
 import { EngineDataError, getKanban } from "@/lib/server/engine-cache";
-import { injectSlide1 } from "@/lib/pptx/inject";
+import { resolveStore, type StorePeriod } from "@/lib/server/store-source";
+import { injectAll } from "@/lib/pptx/inject";
 import { TemplateMissingError, loadTemplateBytes } from "@/lib/pptx/template";
+import type { AnnotationOverlay } from "@/lib/annotations/overlay";
 
 export const runtime = "nodejs"; // fs·SheetJS·fflate = Node 런타임
 export const dynamic = "force-dynamic";
@@ -71,10 +80,44 @@ export async function GET(req: Request): Promise<NextResponse> {
     throw e;
   }
 
-  // 3) 슬라이드1 주입(서식 보존) → .pptx 바이트.
+  // 3) 매장 데이터(슬2) — graceful. 매장 데이터 없으면 슬2 공란(보고서는 정상 생성).
+  let storeRows: StoreDashRow[] | undefined;
+  try {
+    const storePeriod: StorePeriod = period === "CUMULATIVE" ? "CUMULATIVE" : "MONTH";
+    const resolved = await resolveStore(storePeriod);
+    const dash = buildStoreDashboard(resolved.kanban, {
+      params: resolved.params,
+      curation: resolved.curation,
+      errors: resolved.errors,
+    });
+    storeRows = dash.flatRows;
+  } catch (e) {
+    // 매장 데이터 부재/실패 = 비치명(슬2 공란). 핵심지표(슬1·5)는 그대로 출력.
+    console.warn("[export/pptx] store data unavailable — slide2 left blank", e);
+  }
+
+  // 4) 주석(슬5 목표·전년·조치) — DB 있을 때만. 없으면 해당 칸 공란.
+  let overlay: AnnotationOverlay | undefined;
+  try {
+    const prisma = getPrisma();
+    if (prisma) {
+      const annos = await listAnnotations(prisma, period);
+      overlay = buildAnnotationOverlay(annos);
+    }
+  } catch (e) {
+    console.warn("[export/pptx] annotations unavailable — slide5 targets blank", e);
+  }
+
+  // 5) 슬1·2·5 주입(서식 보존) → .pptx 바이트. 슬3·4 = 매핑 부재로 공란 유지.
   let out: Uint8Array;
   try {
-    out = injectSlide1({ templateBytes, kanban, periodLabel: periodLabel(period) });
+    out = injectAll({
+      templateBytes,
+      kanban,
+      storeRows,
+      overlay,
+      periodLabel: periodLabel(period),
+    });
   } catch (e) {
     console.error("[export/pptx] inject failed", e);
     return NextResponse.json(

@@ -39,18 +39,37 @@ function loadNameDenylist(): string[] {
     .filter(Boolean);
 }
 
-/** 데이터 값 판정: 숫자·콤마·소수·%·통화·날짜·음수(공백 트림 후). */
+/** 데이터 값 판정: 숫자·콤마·소수·%·통화·날짜·음수·괄호숫자·단위숫자(공백 트림 후). */
 function isDataValue(s: string): boolean {
   const t = s.trim();
   if (!t) return false;
-  // 순수 숫자/콤마/소수/퍼센트/음수/통화기호/날짜 구분자
-  return /^[-+]?[\d.,]+%?$/.test(t) || /^[₩$]\s*[\d.,]+$/.test(t) || /^\d{4}[-./]\d{1,2}([-./]\d{1,2})?$/.test(t);
+  // 순수 숫자/콤마/소수/퍼센트/음수/통화기호
+  if (/^[-+]?[\d.,]+%?$/.test(t)) return true;
+  if (/^[₩$]\s*[\d.,]+$/.test(t)) return true;
+  // 날짜: 2026-06-22 / 4/29 / 5./11 / 6.12 등(연도 유무 무관, 구분자 . / - 연속 허용 "5./11").
+  if (/^\d{1,4}\s*[-./]+\s*\d{1,2}(\s*[-./]+\s*\d{1,2})?$/.test(t)) return true;
+  // 괄호 숫자(마이너스재고·수량 표기): (n,nnn) / (-n,nnn) / ( nn )
+  if (/^\(\s*[-+]?[\d.,]+\s*\)$/.test(t)) return true;
+  // 단위 숫자: 21sku / 4SKU / 1300장 / 197SKU 등(숫자+짧은 단위).
+  if (/^[\d,]+\s*(sku|장|개|p|pcs|ea)?$/i.test(t)) return true;
+  return false;
+}
+
+/**
+ * 자유서술(비고·조치) 위치 — 슬라이드별 텍스트 코멘트 열(0-base).
+ * 실데이터(영업 코멘트·점포·SKU·금액 서술)라 위치 기반으로 마스킹(개별 토큰 마스킹의 보완).
+ *   슬3·4: c20(비고 사항) · 슬5: c29(조치/비고). 데이터행에서만.
+ */
+function isFreeTextPosition(slideIndex: number, row: number, col: number): boolean {
+  if ((slideIndex === 3 || slideIndex === 4) && row >= 2 && col === 20) return true;
+  if (slideIndex === 5 && row >= 4 && col === 29) return true;
+  return false;
 }
 
 /** 슬라이드1 책임자명 위치(0-base): r03 c01/c07/c11/c15/c22 + 데이터행 c01. */
 function isNamePositionSlide1(row: number, col: number): boolean {
   if (row === 3) return [1, 7, 11, 15, 22].includes(col);
-  // 데이터 블록 c01(어느영역 책임자: 오광묵/백서현/한정훈/조한익 등)
+  // 데이터 블록 c01(어느영역 책임자명 — 실명은 denylist/위치 규칙으로 마스킹)
   if (row >= 4 && col === 1) return true;
   return false;
 }
@@ -96,7 +115,11 @@ function maskSlideXml(
     for (let c = 0; c < t.rows[r]!.cells.length; c++) {
       const txt = getCellText(cur, t, r, c);
       const isName = slideIndex === 1 && isNamePositionSlide1(r, c);
-      if (txt && (isDataValue(txt) || isName)) {
+      const isFreeText = isFreeTextPosition(slideIndex, r, c);
+      // freeText 위치는 첫 런이 비어도(멀티런 분할) 무조건 전체 비움 — 데이터값/실명은 첫 런 기준.
+      const shouldClear = isFreeText || (!!txt && (isDataValue(txt) || isName));
+      if (shouldClear) {
+        // clearOtherRuns(기본 true): 멀티런으로 쪼개진 데이터/서술 전체를 비운다(잔존 방지).
         cur = setCellText(cur, t, r, c, "", { skipIfNoRun: true });
         cleared++;
         // 좌표 변동 → 재파싱(빈 문자열이라 길이 줄어듦).
@@ -113,6 +136,28 @@ function maskSlideXml(
     return full;
   });
   cur = fragMask;
+
+  // (4) 표 밖(요약 텍스트박스 등) 런 중 "숫자를 포함한" 런을 비운다(요약 코멘트 실수치 잔존 방지).
+  //     표 안 헤더 구조 라벨은 비숫자 한글이라 미영향. 표 밖은 자유서술이라 숫자=실데이터.
+  try {
+    const tt = findTableRanges(cur);
+    const before = cur.slice(0, tt.tblStart);
+    const tblPart = cur.slice(tt.tblStart, tt.tblEnd);
+    const after = cur.slice(tt.tblEnd);
+    const maskOutside = (s: string): string =>
+      s.replace(/<a:t>([\s\S]*?)<\/a:t>/g, (full, inner: string) => {
+        // 숫자 2자리+ 또는 괄호숫자/날짜 포함 런 = 요약 실수치 단편 → 비움.
+        if (/\d{2,}/.test(inner) || /\(\s*[-+]?\d/.test(inner) || /\d\s*[/.~-]\s*\d/.test(inner)) {
+          cleared++;
+          return "<a:t></a:t>";
+        }
+        return full;
+      });
+    cur = maskOutside(before) + tblPart + maskOutside(after);
+  } catch {
+    // 표가 없으면 전체가 표 밖 — 위 fragMask 로 충분(추가 처리 생략).
+  }
+
   return { xml: cur, cleared };
 }
 
