@@ -7,7 +7,16 @@
 
 import * as XLSX from "xlsx";
 
-import { AGG_COLUMNS, flattenTree, type TreeNode } from "@/lib/engine";
+import {
+  AGG_COLUMNS,
+  engineRatioDenom,
+  engineRatioMin,
+  flattenTree,
+  type AggColumn,
+  type FactRow,
+  type TreeNode,
+} from "@/lib/engine";
+import { guardedExportCell } from "@/lib/export-guard";
 
 /** 포맷별 표시문자열(엑셀 셀은 가독 표시값 — 화면 포맷과 동일). */
 function cellValue(format: string, v: number | null): string | number {
@@ -24,6 +33,17 @@ function cellValue(format: string, v: number | null): string | number {
     default:
       return Number(v.toFixed(2));
   }
+}
+
+/**
+ * C14: 컬럼 1셀 — 비율 컬럼(가드 매핑)은 화면(tree-table)과 동일 희소-분모 보류("—"),
+ * 비-비율 원시값은 그대로. 분모·임계 소스는 화면과 동일(engineRatio*).
+ */
+export function aggCellValue(c: AggColumn, metrics: FactRow): string | number {
+  const raw = metrics[c.field] as number | null;
+  const min = engineRatioMin(c.field);
+  const denom = engineRatioDenom(c.field, metrics);
+  return guardedExportCell(raw, denom, min, (v) => cellValue(c.format, v));
 }
 
 /**
@@ -46,9 +66,8 @@ export function exportTreeToXlsx(
   for (const { node, depth } of flat) {
     const indent = "  ".repeat(depth);
     const label = `${indent}${node.label}`;
-    const cells = AGG_COLUMNS.map((c) =>
-      cellValue(c.format, node.metrics[c.field] as number | null),
-    );
+    // C14: 비율 셀은 화면과 동일 가드("—"), 비-비율 원시값은 그대로.
+    const cells = AGG_COLUMNS.map((c) => aggCellValue(c, node.metrics));
     rows.push([label, ...cells]);
   }
 
