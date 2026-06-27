@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 
 import {
   brandDisplayName,
+  productRatioDenom,
+  productRatioMin,
   PRODUCT_COL_GROUPS,
   PRODUCT_FLAT_COLS,
   type ProductCol,
@@ -11,6 +13,7 @@ import {
   type ProductTreeNodeDto,
 } from "@/lib/engine-product";
 import { fmtEok, fmtMult, fmtNum, fmtPct, fmtQty } from "@/lib/format";
+import { guardedText } from "@/components/shared/guarded-ratio";
 
 /**
  * 상품 드릴다운 트리테이블 — 전체→브랜드→시즌 3단(레퍼런스 BI 양식, 매장 tree-table 재사용).
@@ -245,19 +248,23 @@ function ProductRow({
         </span>
       </td>
 
-      {PRODUCT_FLAT_COLS.map((c, i) => (
-        <td
-          key={`${c.label}-${i}`}
-          className={[
-            "tabnum whitespace-nowrap px-2 py-[7px] text-right",
-            isGroupStart(i) ? "border-l border-zinc-100" : "",
-            isParent ? "font-medium" : "",
-            cellTone(c, node.metrics),
-          ].join(" ")}
-        >
-          {formatCell(c, node.metrics)}
-        </td>
-      ))}
+      {PRODUCT_FLAT_COLS.map((c, i) => {
+        const g = guardForCol(c, node.metrics);
+        return (
+          <td
+            key={`${c.label}-${i}`}
+            className={[
+              "tabnum whitespace-nowrap px-2 py-[7px] text-right",
+              isGroupStart(i) ? "border-l border-zinc-100" : "",
+              isParent ? "font-medium" : "",
+              g.suppressed ? "text-zinc-300" : cellTone(c, node.metrics),
+            ].join(" ")}
+            title={g.suppressed ? g.reason : undefined}
+          >
+            {g.text}
+          </td>
+        );
+      })}
     </tr>
   );
 }
@@ -296,6 +303,20 @@ function formatCell(col: ProductCol, m: ProductNodeMetrics): string {
     default:
       return fmtNum(v);
   }
+}
+
+/** auto 비율 컬럼이면 희소 분모 가드 적용. na/manual·가산 컬럼은 그대로. */
+function guardForCol(
+  col: ProductCol,
+  m: ProductNodeMetrics,
+): { text: string; suppressed: boolean; reason?: string } {
+  if (col.kind !== "auto") return { text: formatCell(col, m), suppressed: false };
+  const min = productRatioMin(col.field);
+  const denom = productRatioDenom(col.field, m);
+  const raw = m[col.field] as number | null;
+  return guardedText(raw, denom, min, (v) =>
+    formatCell({ ...col, field: col.field }, { ...m, [col.field]: v }),
+  );
 }
 
 function flattenVisible(

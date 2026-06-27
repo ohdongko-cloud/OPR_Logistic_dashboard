@@ -1,7 +1,12 @@
 "use client";
 
-import { type ProductNodeMetrics } from "@/lib/engine-product";
+import {
+  productRatioDenom,
+  productRatioMin,
+  type ProductNodeMetrics,
+} from "@/lib/engine-product";
 import { fmtPct, fmtQty } from "@/lib/format";
+import { guardedText } from "@/components/shared/guarded-ratio";
 
 /**
  * 상품 KPI 요약 스트립(레퍼런스 BI 양식 — 상단 가로 일렬).
@@ -18,15 +23,20 @@ export function ProductKpiStrip({
   periodLabel: string;
   filterLabel: string;
 }) {
+  // 희소 분모 가드(출고율·판매율·매총율).
+  const outRateG = guardedText(metrics.outRate, productRatioDenom("outRate", metrics), productRatioMin("outRate"), fmtPct);
+  const saleVsInG = guardedText(metrics.saleVsIn, productRatioDenom("saleVsIn", metrics), productRatioMin("saleVsIn"), fmtPct);
+  const grossG = guardedText(metrics.grossRate, productRatioDenom("grossRate", metrics), productRatioMin("grossRate"), fmtPct);
+
   return (
     <div className="flex flex-wrap items-stretch gap-x-6 gap-y-3 rounded-lg border border-zinc-200 bg-white px-5 py-3.5">
       <Kpi label="입고량" value={fmtQty(metrics.inQty)} />
       <Kpi label="재고량" value={fmtQty(metrics.invQty)} />
       <Kpi label="누적출고량" value={fmtQty(metrics.outQty)} />
-      <Kpi label="누적출고율" value={fmtPct(metrics.outRate)} accent />
+      <Kpi label="누적출고율" value={outRateG.text} accent={!outRateG.suppressed} muted={outRateG.suppressed} tip={outRateG.reason} />
       <Kpi label="누적판매량" value={fmtQty(metrics.saleQty)} />
-      <Kpi label="입고비판매율" value={fmtPct(metrics.saleVsIn)} accent />
-      <Kpi label="누적매총율" value={fmtPct(metrics.grossRate)} />
+      <Kpi label="입고비판매율" value={saleVsInG.text} accent={!saleVsInG.suppressed} muted={saleVsInG.suppressed} tip={saleVsInG.reason} />
+      <Kpi label="누적매총율" value={grossG.text} muted={grossG.suppressed} tip={grossG.reason} />
 
       <div className="ml-auto flex flex-col justify-center border-l border-zinc-100 pl-6 text-right">
         <span className="text-[10px] uppercase tracking-wide text-zinc-400">스냅샷</span>
@@ -39,15 +49,28 @@ export function ProductKpiStrip({
   );
 }
 
-function Kpi({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Kpi({
+  label,
+  value,
+  accent,
+  muted,
+  tip,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  muted?: boolean;
+  tip?: string;
+}) {
   return (
     <div className="flex min-w-[80px] flex-col justify-center">
       <span className="text-[11px] leading-tight text-zinc-400">{label}</span>
       <span
         className={[
           "tabnum mt-0.5 text-[21px] font-semibold leading-none",
-          accent ? "text-accent" : "text-zinc-800",
+          muted ? "cursor-help text-zinc-300" : accent ? "text-accent" : "text-zinc-800",
         ].join(" ")}
+        title={muted ? tip : undefined}
       >
         {value}
       </span>

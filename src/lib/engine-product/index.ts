@@ -16,3 +16,4 @@ export * from "./stage1-product";
 export * from "./stage2-product-tree";
 export * from "./agg-product-tree";
 export * from "./agg-product-columns";
+export * from "./ratio-guard";

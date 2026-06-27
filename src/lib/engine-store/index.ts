@@ -17,3 +17,4 @@ export * from "./stage1-store-kanban";
 export * from "./stage2-store-tree";
 export * from "./agg-store-tree";
 export * from "./agg-store-columns";
+export * from "./ratio-guard";

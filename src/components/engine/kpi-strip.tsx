@@ -1,8 +1,9 @@
 "use client";
 
 import { type FactRow } from "@/lib/engine";
-import { CRITICAL_THRESHOLDS } from "@/lib/engine";
+import { CRITICAL_THRESHOLDS, engineRatioDenom, engineRatioMin } from "@/lib/engine";
 import { fmtDays, fmtEok, fmtPct, fmtQty } from "@/lib/format";
+import { guardedText } from "@/components/shared/guarded-ratio";
 
 /**
  * KPI 요약 스트립 (레퍼런스 BI 양식 — 상단 가로 일렬 숫자 묶음).
@@ -22,19 +23,23 @@ export function KpiStrip({
   periodLabel: string;
   filterLabel: string;
 }) {
-  const ratioWarn = (metrics.logiRatio ?? 0) >= CRITICAL_THRESHOLDS.ratioHigh;
-  const daysWarn = (metrics.dotsCtr ?? 0) >= CRITICAL_THRESHOLDS.daysHigh;
-  const deadWarn = (metrics.deadCtrPct ?? 0) >= CRITICAL_THRESHOLDS.ratioHigh;
+  // 희소 분모 가드 — 비율/일수가 분모 미미면 "—"(오해성 극단값 보류). 원본 보존, 표시만.
+  const ratioG = guardedText(metrics.logiRatio, engineRatioDenom("logiRatio", metrics), engineRatioMin("logiRatio"), fmtPct);
+  const daysG = guardedText(metrics.dotsCtr, engineRatioDenom("dotsCtr", metrics), engineRatioMin("dotsCtr"), fmtDays);
+  const deadG = guardedText(metrics.deadCtrPct, engineRatioDenom("deadCtrPct", metrics), engineRatioMin("deadCtrPct"), fmtPct);
+  const ratioWarn = !ratioG.suppressed && (metrics.logiRatio ?? 0) >= CRITICAL_THRESHOLDS.ratioHigh;
+  const daysWarn = !daysG.suppressed && (metrics.dotsCtr ?? 0) >= CRITICAL_THRESHOLDS.daysHigh;
+  const deadWarn = !deadG.suppressed && (metrics.deadCtrPct ?? 0) >= CRITICAL_THRESHOLDS.ratioHigh;
 
   return (
     <div className="flex flex-wrap items-stretch gap-x-7 gap-y-3 rounded-lg border border-zinc-200 bg-white px-5 py-3.5">
       <Kpi label="매출 (실매출 추정)" value={fmtEok(metrics.sales)} accent />
-      <Kpi label="물류비율" value={fmtPct(metrics.logiRatio)} warn={ratioWarn} />
-      <Kpi label="센터 재고일수" value={fmtDays(metrics.dotsCtr)} warn={daysWarn} />
+      <Kpi label="물류비율" value={ratioG.text} warn={ratioWarn} muted={ratioG.suppressed} tip={ratioG.reason} />
+      <Kpi label="센터 재고일수" value={daysG.text} warn={daysWarn} muted={daysG.suppressed} tip={daysG.reason} />
       <Kpi label="입고량" value={fmtQty(metrics.inQty)} />
       <Kpi label="출고량" value={fmtQty(metrics.outQty)} />
       <Kpi label="반품량" value={fmtQty(metrics.retQty)} />
-      <Kpi label="센터체화비중" value={fmtPct(metrics.deadCtrPct)} warn={deadWarn} />
+      <Kpi label="센터체화비중" value={deadG.text} warn={deadWarn} muted={deadG.suppressed} tip={deadG.reason} />
 
       {/* 우측 끝 보조: 스냅샷 기간/필터 */}
       <div className="ml-auto flex flex-col justify-center border-l border-zinc-100 pl-7 text-right">
@@ -53,11 +58,16 @@ function Kpi({
   value,
   accent,
   warn,
+  muted,
+  tip,
 }: {
   label: string;
   value: string;
   accent?: boolean;
   warn?: boolean;
+  /** 희소 분모 보류 — 흐림 + 툴팁. */
+  muted?: boolean;
+  tip?: string;
 }) {
   return (
     <div className="flex min-w-[84px] flex-col justify-center">
@@ -65,8 +75,9 @@ function Kpi({
       <span
         className={[
           "tabnum mt-0.5 text-[22px] font-semibold leading-none",
-          warn ? "text-bad" : accent ? "text-accent" : "text-zinc-800",
+          muted ? "cursor-help text-zinc-300" : warn ? "text-bad" : accent ? "text-accent" : "text-zinc-800",
         ].join(" ")}
+        title={muted ? tip : undefined}
       >
         {value}
         {warn && <span className="ml-1 align-top text-[12px]">⚠</span>}

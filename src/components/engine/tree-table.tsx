@@ -8,8 +8,15 @@ import {
   type AnnotationOverlay,
   type NodeOverlay,
 } from "@/lib/annotations";
-import { isCritical, type AggColumn, type TreeNode } from "@/lib/engine";
+import {
+  engineRatioDenom,
+  engineRatioMin,
+  isCritical,
+  type AggColumn,
+  type TreeNode,
+} from "@/lib/engine";
 import { fmtDays, fmtEok, fmtNum, fmtPct, fmtQty } from "@/lib/format";
+import { guardedText } from "@/components/shared/guarded-ratio";
 
 /**
  * 드릴다운 트리테이블 — 조밀한 Excel風 (레퍼런스 BI 양식).
@@ -361,7 +368,12 @@ function TreeRow({
 
       {FLAT_COLS.map((c, i) => {
         const raw = node.metrics[c.field] as number | null;
-        const tone = cellTone(c, raw);
+        // 희소 분모 가드: 비율필드면 분모 임계로 표기 보류("—").
+        const min = engineRatioMin(c.field);
+        const denom = engineRatioDenom(c.field, node.metrics);
+        const g = guardedText(raw, denom, min, (v) => formatCell(c, v));
+        // 보류면 위험 톤 제거(오해성 극단값을 빨강으로 강조하지 않음).
+        const tone = g.suppressed ? "text-zinc-300" : cellTone(c, raw);
         const groupStart = isGroupStart(i);
         return (
           <td
@@ -372,8 +384,9 @@ function TreeRow({
               isParent ? "font-medium" : "",
               tone,
             ].join(" ")}
+            title={g.suppressed ? g.reason : undefined}
           >
-            {formatCell(c, raw)}
+            {g.text}
           </td>
         );
       })}
