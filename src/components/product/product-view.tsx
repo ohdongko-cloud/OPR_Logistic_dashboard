@@ -33,11 +33,15 @@ interface ProductAggResponse {
 }
 
 /**
- * ③ 상품 SCM — 브랜드(구매그룹 코드)×시즌 입고→상품화→판매 누적 추적(레퍼런스 BI 양식).
+ * ③ 상품 SCM — 브랜드(구매그룹 코드)×시즌 입고→상품화→판매 추적(레퍼런스 BI 양식).
  *
- * 레이아웃: Topbar(누적 기본·당월 토글) → 안내배너(자동/수기 비율) → KPI 스트립 →
- *   검색/엑셀 → 3단 트리테이블(전체→브랜드→시즌).
+ * 레이아웃: Topbar(?period 토글 — 슬3·4 기준은 누적, 당월도 동일 파이프) → 안내배너(자동/수기 비율)
+ *   → KPI 스트립 → 검색/엑셀 → 3단 트리테이블(전체→브랜드→시즌).
  * 자동 8필드=값. 자동불가 8(일자)=—. 수기 3(annotation)=✎ 슬롯. /api/product-agg 계약 불변.
+ *
+ * ★기간 라벨 단일진실원: 출고량·출고율·판매량·매총율 라벨/subtitle 접두("누적"/"당월")는
+ *   서버 응답 periodLabel(=데이터 기간)에 종속한다. 당월 스냅샷이면 라벨도 "당월…"으로 표기되어
+ *   "누적"이라 적힌 칸에 당월 값이 들어가는 라벨/데이터 불일치를 제거한다.
  */
 export function ProductView() {
   const params = useSearchParams();
@@ -86,13 +90,13 @@ export function ProductView() {
     <>
       <Topbar
         title="상품 SCM — 브랜드·시즌"
-        subtitle="전체 → 브랜드(구매그룹) → 시즌 드릴다운 · 입고→상품화→판매 누적추적"
+        subtitle={`전체 → 브랜드(구매그룹) → 시즌 드릴다운 · 입고→상품화→판매 ${period}추적`}
       />
 
       <div className="flex-1 space-y-3 overflow-auto p-5">
         {/* 자동/수기 비율 정직 고지(스펙 §2-E — 19필드 中 8 자동). */}
         <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-[12px] text-sky-800">
-          <b>자동집계 8필드</b>(입고·재고·출고·출고율·판매·출고비/입고비판매·매총율)는 실데이터로 채워집니다.{" "}
+          <b>자동집계 8필드</b>(입고·재고·출고·출고율·판매·출고비판매·입고비판매·매총율)는 실데이터로 채워집니다.{" "}
           <b className="text-zinc-500">자동불가 8필드</b>(입고일·리드타임·일자류)는{" "}
           <span className="font-mono">—</span> = <b>원천(SAP 일자) 필요(추후)</b>,{" "}
           <b className="text-amber-600">수기 3필드</b>(정보정확도·P별적합도·비고)는{" "}
@@ -155,7 +159,7 @@ export function ProductView() {
           </div>
         )}
 
-        {data && <ProductTreeTable root={data.tree} query={query} />}
+        {data && <ProductTreeTable root={data.tree} query={query} periodLabel={data.periodLabel} />}
 
         {/* 컬럼 범례(블록·책임). */}
         {data && (

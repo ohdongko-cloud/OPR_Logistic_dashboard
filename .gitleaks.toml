@@ -1,0 +1,41 @@
+# gitleaks 설정 — 기본 룰셋 확장 + OPR 운영에서 실제 노출됐던 시크릿 프리픽스 추가 룰.
+# pre-commit 훅(scripts/precommit-secret-scan.sh)이 `gitleaks git --staged --config .gitleaks.toml` 로 사용.
+
+[extend]
+useDefault = true   # gitleaks 내장 룰셋(AWS·GitHub·Slack 등) 모두 포함.
+
+[[rules]]
+id = "neon-postgres-password"
+description = "Neon Postgres 비밀번호(npg_ 프리픽스)"
+regex = '''npg_[0-9A-Za-z]{16,}'''
+keywords = ["npg_"]
+
+[[rules]]
+id = "vercel-token"
+description = "Vercel 토큰(vcp_ 프리픽스)"
+regex = '''vcp_[0-9A-Za-z]{20,}'''
+keywords = ["vcp_"]
+
+[[rules]]
+id = "auth-secret-assignment"
+description = "AUTH_SECRET 평문 할당"
+regex = '''(?i)AUTH_SECRET\s*[:=]\s*['"]?[A-Za-z0-9+/=_-]{16,}'''
+keywords = ["auth_secret"]
+
+[[rules]]
+id = "smtp-pass-assignment"
+description = "SMTP_PASS(메일 앱비밀번호) 평문 할당"
+regex = '''(?i)SMTP_PASS\s*[:=]\s*['"]?[A-Za-z0-9]{12,}'''
+keywords = ["smtp_pass"]
+
+[allowlist]
+description = "샘플·문서 — 더미값 허용"
+paths = [
+  '''\.env\.example$''',
+  '''\.gitleaks\.toml$''',
+  '''scripts/precommit-secret-scan\.sh$''',
+]
+# 명백한 더미/플레이스홀더는 오탐 제외.
+regexes = [
+  '''(?i)(your[_-]?secret|placeholder|example|dummy|change[_-]?me|xxxx)''',
+]

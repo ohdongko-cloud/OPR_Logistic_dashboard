@@ -12,6 +12,9 @@
  *   슬5(⑤ 목표 대비)        — 아이템 엔진 현재값 + Annotation(목표·전년·조치, DB 있을 때).
  *   슬3·4(③ 상품 SCM)       — 행↔노드 매핑 마스터 부재로 공란 유지(가짜값 금지).
  *
+ * 데이터 출처: 슬1·2·5 모두 DB CURRENT 스냅샷 우선 → 없으면 라이브파일 폴백(resolveKanban·
+ *   resolveStore — /api/agg 와 동일). Vercel(라이브파일 부재)에서도 DB 적재분으로 정상 출력.
+ *
  * 인가: 출력면(logistics VIEW) — 인증 + VIEW 게이트(requireTab).
  * 보안: 실데이터는 서버 메모리만(영속화/외부반출 없음). 템플릿은 마스킹본.
  */
@@ -24,7 +27,7 @@ import { listAnnotations } from "@/lib/annotations/repo";
 import { buildStoreDashboard, type StoreDashRow } from "@/lib/engine-store";
 import { parsePeriod, periodLabel } from "@/lib/engine";
 import { getPrisma } from "@/lib/prisma";
-import { EngineDataError, getKanban } from "@/lib/server/engine-cache";
+import { EngineDataError, resolveKanban } from "@/lib/server/kanban-source";
 import { resolveStore, type StorePeriod } from "@/lib/server/store-source";
 import { injectAll } from "@/lib/pptx/inject";
 import { TemplateMissingError, loadTemplateBytes } from "@/lib/pptx/template";
@@ -47,10 +50,10 @@ export async function GET(req: Request): Promise<NextResponse> {
   const url = new URL(req.url);
   const period = parsePeriod(url.searchParams.get("period_type"));
 
-  // 1) 엔진 칸반(검증된 Stage1) — 실파일 서버 read(캐시).
+  // 1) 엔진 칸반(검증된 Stage1) — DB CURRENT 스냅샷 우선 → 없으면 라이브파일(슬2·5와 출처 일치).
   let kanban;
   try {
-    kanban = getKanban(period);
+    ({ kanban } = await resolveKanban(period));
   } catch (e) {
     if (e instanceof EngineDataError) {
       return NextResponse.json(

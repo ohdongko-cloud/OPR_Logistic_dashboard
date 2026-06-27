@@ -10,6 +10,7 @@ import * as XLSX from "xlsx";
 
 import {
   brandDisplayName,
+  productColLabel,
   PRODUCT_FLAT_COLS,
   type ProductCol,
   type ProductTreeNodeDto,
@@ -57,7 +58,8 @@ export function exportProductTreeToXlsx(
   const header = [
     "계층(전체·브랜드·시즌)",
     "브랜드코드",
-    ...PRODUCT_FLAT_COLS.map((c) => `${c.label}${unitOf(c)}`),
+    // 기간 접두("누적"/"당월")를 라벨에 반영(데이터=라벨 일치, 화면 헤더와 동일 규칙).
+    ...PRODUCT_FLAT_COLS.map((c) => `${productColLabel(c, meta.periodLabel)}${unitOf(c)}`),
   ];
 
   const rows: (string | number)[][] = [header];

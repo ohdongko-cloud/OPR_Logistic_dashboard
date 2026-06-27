@@ -36,6 +36,7 @@ export function LogiCostForm() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [warn, setWarn] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const total = useMemo(
@@ -51,7 +52,8 @@ export function LogiCostForm() {
     setSaving(true);
     setErr(null);
     setMsg(null);
-    const toPost = COST_ITEMS.map((it) => ({ key: it.key, raw: values[it.key] })).filter(
+    setWarn(null);
+    const toPost = COST_ITEMS.map((it) => ({ key: it.key, label: it.label, raw: values[it.key] })).filter(
       (e) => e.raw != null && e.raw.trim() !== "" && Number.isFinite(Number(e.raw)),
     );
     if (toPost.length === 0) {
@@ -73,16 +75,28 @@ export function LogiCostForm() {
               metricCode: e.key,
               numValue: Number(e.raw),
             }),
-          }).then((r) => r.json().then((j) => ({ ok: r.ok && j.ok, status: r.status, detail: j.detail }))),
+          })
+            .then((r) => r.json().then((j) => ({ ok: r.ok && j.ok, status: r.status, detail: j.detail, label: e.label })))
+            .catch(() => ({ ok: false, status: 0, detail: "네트워크 오류", label: e.label })),
         ),
       );
-      const forbidden = results.find((r) => r.status === 403);
-      if (forbidden) {
+
+      const total = results.length;
+      const okN = results.filter((r) => r.ok).length;
+      const forbidden = results.some((r) => r.status === 403);
+      const reasons = results
+        .filter((r) => !r.ok)
+        .map((r) => `${r.label}: ${r.status === 403 ? "권한 없음(INPUT 필요)" : r.detail ?? "저장 실패"}`);
+
+      if (okN === total) {
+        setMsg(`물류비예측이 저장되었습니다(${okN}건).`);
+      } else if (okN > 0) {
+        // 부분성공 — 성공분은 이미 서버 반영. 실패분 사유 명시.
+        setWarn(`${okN}/${total}건 저장됨 · 일부 실패: ${reasons.join(" / ")}`);
+      } else if (forbidden) {
         setErr("입력 권한이 없습니다(INPUT 필요).");
-      } else if (results.every((r) => r.ok)) {
-        setMsg("물류비예측이 저장되었습니다.");
       } else {
-        setErr(results.find((r) => !r.ok)?.detail ?? "일부 저장 실패");
+        setErr(`저장 실패: ${reasons.join(" / ") || "알 수 없는 오류"}`);
       }
     } catch {
       setErr("네트워크 오류");
@@ -147,6 +161,9 @@ export function LogiCostForm() {
 
       {err && (
         <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-600">{err}</p>
+      )}
+      {warn && (
+        <p className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-700">{warn}</p>
       )}
       {msg && (
         <p className="mt-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-[12px] text-green-700">{msg}</p>

@@ -109,6 +109,9 @@ model Snapshot {
 
   @@index([periodType, periodEnd])
   @@index([status])
+  // ⚠️ 부분 유니크 인덱스 "snapshots_current_unique" (fileType, periodType) WHERE status='CURRENT'
+  //    는 Prisma 스키마로 표현 불가 → raw SQL 마이그레이션
+  //    (20260627000002_unique_current_snapshot)으로 관리. (fileType,periodType)당 CURRENT 1건 강제.
   @@map("snapshots")
 }
 
@@ -313,6 +316,9 @@ model FactStore {
   baseDisplayQty Decimal? @db.Decimal(18, 2) // J 기준진열량
   baseRunQty     Decimal? @db.Decimal(18, 2) // K 기준주판량
   isCard         Boolean  @default(false) // 대시보드 카드 노출 점포(큐레이션)
+  /// 큐레이션 카드 순번(curation.codes 인덱스). PPT 슬2 점포-행 위치 결정 — DB 복원 순서 박제.
+  /// 비카드행·레거시행 = 0(DEFAULT). 복원 시 cardSeq ASC 로 codes 재구성(라이브파일과 동순).
+  cardSeq        Int      @default(0)
   mNegQty        Decimal? @db.Decimal(18, 2) // V (−)재고 수량(수불오차)
   mNegAmt        Decimal? @db.Decimal(18, 2) // W (−)재고 금액(수불오차)
 

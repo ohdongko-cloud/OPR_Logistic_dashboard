@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { type FactKey } from "@/lib/engine";
 import { fmtQty, fmtWon } from "@/lib/format";
+import { useDialog } from "@/components/shared/use-dialog";
 
 /** SKU 상세(API 응답 grain). */
 interface SkuDetail {
@@ -40,6 +41,9 @@ export function SkuPanel({
   const [skus, setSkus] = useState<SkuDetail[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 접근성: ESC 닫기 · role=dialog · 포커스 이동/복원 · 포커스 트랩(공통 훅).
+  const { ref: dialogRef, titleId, dialogProps } = useDialog(open, onClose);
 
   useEffect(() => {
     if (!open || !itemKey) return;
@@ -82,10 +86,14 @@ export function SkuPanel({
         onClick={onClose}
         aria-hidden
       />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-2xl flex-col bg-white shadow-xl">
+      <aside
+        ref={dialogRef}
+        {...dialogProps}
+        className="absolute right-0 top-0 flex h-full w-full max-w-2xl flex-col bg-white shadow-xl outline-none"
+      >
         <header className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-900">SKU 상세</h2>
+            <h2 id={titleId} className="text-sm font-semibold text-zinc-900">SKU 상세</h2>
             <p className="text-xs text-zinc-500">{label}</p>
           </div>
           <button

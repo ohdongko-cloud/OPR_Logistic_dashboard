@@ -127,14 +127,23 @@ export async function persistSnapshot(input: PersistInput): Promise<PersistResul
     });
 
     // ── ③ PUBLISH: 트랜잭션 — supersede 이전 CURRENT, 신규 → CURRENT ──
+    // 멱등·단일진실원(리뷰 #4): 같은 (fileType=ITEM, periodType) 의 **모든** CURRENT 를 강등.
+    //   periodEnd 는 resolvePeriodRange 에서 논리적 기간으로 정규화돼 보통 1건이지만,
+    //   과거 비정규 날짜로 쌓인 stale CURRENT 까지 일괄 차단(다중 CURRENT 잔존 방지).
+    //   fileType 필터 명시(이전엔 ITEM 경로에 fileType 누락 — STORE/PRODUCT 와 격리).
     const supersededId = await prisma.$transaction(async (tx) => {
-      const prevCurrent = await tx.snapshot.findFirst({
-        where: { periodType, periodEnd, status: "CURRENT", id: { not: snapshotId } },
+      const prevCurrents = await tx.snapshot.findMany({
+        where: {
+          fileType: "ITEM",
+          periodType,
+          status: "CURRENT",
+          id: { not: snapshotId },
+        },
         select: { id: true },
       });
-      if (prevCurrent) {
-        await tx.snapshot.update({
-          where: { id: prevCurrent.id },
+      if (prevCurrents.length > 0) {
+        await tx.snapshot.updateMany({
+          where: { id: { in: prevCurrents.map((p) => p.id) } },
           data: { status: "SUPERSEDED" },
         });
       }
@@ -142,7 +151,7 @@ export async function persistSnapshot(input: PersistInput): Promise<PersistResul
         where: { id: snapshotId },
         data: { status: "CURRENT" },
       });
-      return prevCurrent?.id ?? null;
+      return prevCurrents[0]?.id ?? null;
     });
 
     await prisma.ingestLog.create({

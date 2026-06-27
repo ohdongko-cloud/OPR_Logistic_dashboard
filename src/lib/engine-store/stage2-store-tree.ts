@@ -210,10 +210,14 @@ export function buildStoreDashboard(
     const isDirect = spec.code === "직영";
     // E: 직영=픽스재고일수(칸반 E) · 전체/중관/기타=전체재고일수(칸반 F).
     const dotsDays = isDirect ? k.dotsFix : k.dotsAll;
+    // E 분모(가드용): 직영=일평균픽스원가(O) · 그외=일평균전체원가(AD). 행종류 분기 실분모.
+    const dotsDaysDenom = isDirect ? k.dailyCogsFix : k.dailyCogsAll;
     // F: 직영=O/P(픽스재고량) · 그외=O/T(전체재고량).
     const seasonPct = isDirect
       ? safeDiv(k.summerInvQty, k.invQtyFix)
       : safeDiv(k.summerInvQty, k.invQtyAll);
+    // F 분모(가드용): 직영=픽스재고량(P) · 그외=전체재고량(T). 수량 단위.
+    const seasonPctDenom = isDirect ? k.invQtyFix : k.invQtyAll;
     // G: 직영=P/I · 그외=T/I.
     const baseInv = master.baseInvQty ?? 0;
     const stockRatio = isDirect
@@ -238,7 +242,9 @@ export function buildStoreDashboard(
     flatRows.push(
       makeDashRow(spec.code, spec.channel, "", spec.code === "전체" ? "L0_TOTAL" : "L1_CHANNEL", k, master, {
         dotsDays,
+        dotsDaysDenom,
         seasonPct,
+        seasonPctDenom,
         stockRatio,
         neg,
         div,
@@ -263,7 +269,9 @@ export function buildStoreDashboard(
     flatRows.push(
       makeDashRow(code, k.channel, k.storeName, "L2_STORE", k, master, {
         dotsDays: k.dotsFix, // 점포 = 픽스 재고일수
+        dotsDaysDenom: k.dailyCogsFix, // 점포 = 일평균픽스원가(O) 분모
         seasonPct: safeDiv(k.summerInvQty, k.invQtyFix), // O/P
+        seasonPctDenom: k.invQtyFix, // 점포 = 픽스재고량(P) 분모(수량)
         stockRatio: safeDiv(k.invQtyFix, baseInv), // P/I
         neg,
         div,
@@ -284,7 +292,9 @@ function makeDashRow(
   master: { areaPyeong: number | null; baseInvQty: number | null; baseDisplayQty: number | null; baseRunQty: number | null },
   branch: {
     dotsDays: number | null;
+    dotsDaysDenom: number | null;
     seasonPct: number | null;
+    seasonPctDenom: number | null;
     stockRatio: number | null;
     neg: { negQty: number | null; negAmt: number | null };
     div: number;
@@ -299,6 +309,8 @@ function makeDashRow(
     dotsDays: branch.dotsDays, // E (분기)
     seasonPct: branch.seasonPct, // F (분기)
     stockRatio: branch.stockRatio, // G (분기)
+    dotsDaysDenom: branch.dotsDaysDenom, // E 분모(가드 carry)
+    seasonPctDenom: branch.seasonPctDenom, // F 분모(가드 carry)
     areaPyeong: master.areaPyeong,
     baseInvQty: master.baseInvQty,
     baseDisplayQty: master.baseDisplayQty,

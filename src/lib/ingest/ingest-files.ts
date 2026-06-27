@@ -152,6 +152,8 @@ export function ingestFiles(
       ? undefined
       : !allFilesOk
         ? "일부 파일 검증/파싱 실패"
-        : `필수 RAW 시트 누락: ${sheetSet.missing.join(", ")}`,
+        : sheetSet.missing.length > 0
+          ? `필수 RAW 시트 누락: ${sheetSet.missing.join(", ")}`
+          : `RAW 시트 중복 감지(이중계산 방지): ${sheetSet.duplicates.join(", ")}`,
   };
 }

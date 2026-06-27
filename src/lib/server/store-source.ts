@@ -24,12 +24,11 @@ import {
 } from "@/lib/engine-store";
 import { getPrisma } from "@/lib/prisma";
 
+import { resolveDataDir } from "./data-dir";
 import { loadCurrentStore } from "./persist-store";
 
 export type StorePeriod = "MONTH" | "CUMULATIVE";
 export type StoreSource = "db" | "livefile";
-
-const DEFAULT_DATA_DIR = "D:/vibe/OPR_Logistic_auto03/05_대시보드 원본 파일";
 
 /** period → 매장 실파일명. 매장은 당월만 동봉(누적 미존재 — graceful). */
 const STORE_FILE_NAMES: Partial<Record<StorePeriod, string>> = {
@@ -62,7 +61,8 @@ export interface ResolvedStore {
 }
 
 function dataDir(): string {
-  return process.env.OPR_DATA_DIR ?? DEFAULT_DATA_DIR;
+  // OPR_DATA_DIR 우선 · dev 폴백 · prod 미설정 throw(신뢰경계 — data-dir.ts).
+  return resolveDataDir();
 }
 
 function storeFilePath(period: StorePeriod): string | null {

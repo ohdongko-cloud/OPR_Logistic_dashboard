@@ -48,6 +48,10 @@ export interface StoreNodeMetrics {
   negAmt: number | null; // W (−)재고 금액
   areaPyeong: number | null; // H 운영평수
   baseInvQty: number | null; // I 기준재고량
+
+  // 비율 가드용 carry 분모(행종류 분기 실분모 — 희소판정 정확성).
+  dotsDaysDenom: number | null; // E 재고일수 실분모(일평균원가, 금액)
+  seasonPctDenom: number | null; // F 시즌비중 실분모(재고량, 수량)
 }
 
 /** 직렬화 안전 트리 노드(아이템 TreeNode 계약 호환). */
@@ -66,8 +70,18 @@ export interface StoreAggFilter {
   channel?: StoreChannel;
 }
 
-/** 칸반행 → 노드 지표(대시보드 분기값 병합). */
-function metricsOf(k: StoreKanbanRow, dash?: StoreDashRow): StoreNodeMetrics {
+/**
+ * 칸반행 → 노드 지표(대시보드 분기값 병합).
+ *
+ * @param usesFixDenom dash 부재 시 carry 분모 폴백 분기 — true(직영 채널·점포 리프)=픽스분모,
+ *   false(전체·중관·기타 집계)=전체분모. dash 가 있으면 dash 의 실분모를 우선.
+ *   stage2 의 분기(직영/점포=픽스 · 전체/중관/기타=전체)와 정합.
+ */
+function metricsOf(
+  k: StoreKanbanRow,
+  dash: StoreDashRow | undefined,
+  usesFixDenom: boolean,
+): StoreNodeMetrics {
   return {
     saleMult: dash?.saleMult ?? k.saleMult,
     dotsFix: k.dotsFix,
@@ -90,6 +104,9 @@ function metricsOf(k: StoreKanbanRow, dash?: StoreDashRow): StoreNodeMetrics {
     negAmt: dash?.negAmt ?? null,
     areaPyeong: dash?.areaPyeong ?? null,
     baseInvQty: dash?.baseInvQty ?? null,
+    // 가드 carry 분모 — dash 있으면 실분모, 없으면 행종류 폴백(stage2 분기와 동일).
+    dotsDaysDenom: dash?.dotsDaysDenom ?? (usesFixDenom ? k.dailyCogsFix : k.dailyCogsAll),
+    seasonPctDenom: dash?.seasonPctDenom ?? (usesFixDenom ? k.invQtyFix : k.invQtyAll),
   };
 }
 
@@ -101,13 +118,15 @@ function toDto(
   // 집계 노드(전체/채널)는 코드=라벨, 점포 리프는 storeCode.
   const code = node.isLeaf ? node.kanban.storeCode : node.label === "전체" ? "전체" : node.label;
   const dash = dashByCode.get(code);
+  // 픽스 분모 분기: 점포 리프 또는 직영 채널 = 픽스(O/P) · 그외 집계 = 전체(AD/T).
+  const usesFixDenom = node.isLeaf || node.channel === "직영";
   return {
     id: node.id,
     label: node.label,
     level: node.level,
     channel: node.channel,
     storeCode: node.isLeaf ? node.kanban.storeCode : undefined,
-    metrics: metricsOf(node.kanban, dash),
+    metrics: metricsOf(node.kanban, dash, usesFixDenom),
     children: node.children.map((c) => toDto(c, dashByCode)),
     isLeaf: node.isLeaf,
   };

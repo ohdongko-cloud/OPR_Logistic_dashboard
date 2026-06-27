@@ -12,6 +12,7 @@ import {
 } from "@/lib/annotations";
 import { serializeNodeKey } from "@/lib/annotations/node-key";
 import { type FactKey, type FactRow } from "@/lib/engine";
+import { useDialog } from "@/components/shared/use-dialog";
 
 /**
  * 입력면 패널 — 선택 노드의 목표·전년(수기)·비고·조치 CRUD.
@@ -119,7 +120,11 @@ function PanelBody({
   const [form, setForm] = useState<FormState>(() => formFromExisting(existing));
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [warn, setWarn] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // 접근성: PanelBody 는 열린 상태에서만 마운트 → useDialog(true) 로 ESC·트랩·포커스 관리.
+  const { ref: dialogRef, titleId, dialogProps } = useDialog(true, onClose);
 
   const periodStart = useMemo(() => {
     // 본문엔 당월 1일 ISO. 서버 upsert 는 본문 periodStart 를 grain 키로 일관 사용.
@@ -127,28 +132,31 @@ function PanelBody({
     return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
   }, []);
 
-  const post = useCallback(async (body: unknown): Promise<boolean> => {
-    const r = await fetch("/api/annotations", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (r.status === 403) {
-      setErr("입력 권한이 없습니다(INPUT 필요).");
-      return false;
-    }
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j.ok) {
-      setErr(j.detail ?? "저장 실패");
-      return false;
-    }
-    return true;
-  }, []);
+  /** 단건 저장 — 성공/실패+사유를 반환(setErr 덮어쓰기 대신 호출부가 집계). */
+  const post = useCallback(
+    async (label: string, body: unknown): Promise<{ ok: boolean; reason?: string }> => {
+      try {
+        const r = await fetch("/api/annotations", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (r.status === 403) return { ok: false, reason: `${label}: 입력 권한 없음(INPUT 필요)` };
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) return { ok: false, reason: `${label}: ${j.detail ?? "저장 실패"}` };
+        return { ok: true };
+      } catch {
+        return { ok: false, reason: `${label}: 네트워크 오류` };
+      }
+    },
+    [],
+  );
 
   const onSave = useCallback(async () => {
     setSaving(true);
     setErr(null);
     setMsg(null);
+    setWarn(null);
     const key: NodeKey = {
       gender: nodeKey.gender ?? "",
       newcarry: nodeKey.newcarry ?? "",
@@ -157,21 +165,21 @@ function PanelBody({
     };
     const base = { periodType, periodStart, key };
 
-    const reqs: Promise<boolean>[] = [];
+    const reqs: Promise<{ ok: boolean; reason?: string }>[] = [];
     for (const [code, raw] of Object.entries(form.targets)) {
       const v = Number(raw);
       if (raw.trim() !== "" && Number.isFinite(v)) {
-        reqs.push(post({ ...base, kind: "TARGET", metricCode: code, numValue: v }));
+        reqs.push(post(`목표(${code})`, { ...base, kind: "TARGET", metricCode: code, numValue: v }));
       }
     }
     for (const [code, raw] of Object.entries(form.priorYear)) {
       const v = Number(raw);
       if (raw.trim() !== "" && Number.isFinite(v)) {
-        reqs.push(post({ ...base, kind: "PRIOR_YEAR", metricCode: code, numValue: v }));
+        reqs.push(post(`전년(${code})`, { ...base, kind: "PRIOR_YEAR", metricCode: code, numValue: v }));
       }
     }
-    if (form.remark.trim()) reqs.push(post({ ...base, kind: "REMARK", textValue: form.remark.trim() }));
-    if (form.action.trim()) reqs.push(post({ ...base, kind: "ACTION", textValue: form.action.trim() }));
+    if (form.remark.trim()) reqs.push(post("비고", { ...base, kind: "REMARK", textValue: form.remark.trim() }));
+    if (form.action.trim()) reqs.push(post("조치", { ...base, kind: "ACTION", textValue: form.action.trim() }));
 
     if (reqs.length === 0) {
       setErr("입력된 값이 없습니다.");
@@ -180,19 +188,35 @@ function PanelBody({
     }
     const results = await Promise.all(reqs);
     setSaving(false);
-    if (results.every(Boolean)) {
-      setMsg("저장되었습니다.");
-      onSaved();
+
+    const total = results.length;
+    const okN = results.filter((r) => r.ok).length;
+    const reasons = results.filter((r) => !r.ok && r.reason).map((r) => r.reason!);
+
+    // 부분성공 인지: 성공분이 있으면 항상 재조회(서버 반영분 동기화).
+    if (okN > 0) onSaved();
+
+    if (okN === total) {
+      setMsg(`저장되었습니다(${okN}건).`);
+    } else if (okN > 0) {
+      // 부분성공 — 성공분은 반영(onSaved 호출됨), 실패분 사유 명시.
+      setWarn(`${okN}/${total}건 저장됨 · 일부 실패: ${reasons.join(" / ")}`);
+    } else {
+      setErr(`저장 실패: ${reasons.join(" / ") || "알 수 없는 오류"}`);
     }
   }, [nodeKey, form, periodType, periodStart, post, onSaved]);
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
       <button type="button" aria-label="닫기" onClick={onClose} className="flex-1 bg-black/20" />
-      <div className="flex h-full w-full max-w-[460px] flex-col overflow-y-auto border-l border-zinc-200 bg-white shadow-xl">
+      <div
+        ref={dialogRef}
+        {...dialogProps}
+        className="flex h-full w-full max-w-[460px] flex-col overflow-y-auto border-l border-zinc-200 bg-white shadow-xl outline-none"
+      >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white px-5 py-3.5">
           <div>
-            <h2 className="text-[14px] font-semibold text-zinc-800">입력면 — 목표·전년·비고</h2>
+            <h2 id={titleId} className="text-[14px] font-semibold text-zinc-800">입력면 — 목표·전년·비고</h2>
             <p className="text-[11px] text-zinc-400">
               {nodeLabel || "전체 (OPR)"} · {periodType === "CUMULATIVE" ? "누적" : "당월"}
             </p>
@@ -286,6 +310,9 @@ function PanelBody({
 
           {err && (
             <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-600">{err}</p>
+          )}
+          {warn && (
+            <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-700">{warn}</p>
           )}
           {msg && (
             <p className="rounded border border-green-200 bg-green-50 px-3 py-2 text-[12px] text-green-700">{msg}</p>

@@ -39,5 +39,12 @@ export function validateSheetSet(
     .filter(([, n]) => n > 1)
     .map(([t]) => t);
 
-  return { ok: missing.length === 0, detected, missing, duplicates };
+  // 올오어낫싱: 누락뿐 아니라 **중복**도 차단(리뷰 #6). 같은 RAW 시트가 2개면 행이 2배로
+  // 누적돼 모든 금액·수량 집계가 부풀려지므로, 이중계산을 사전 봉쇄(442/차단).
+  return {
+    ok: missing.length === 0 && duplicates.length === 0,
+    detected,
+    missing,
+    duplicates,
+  };
 }
