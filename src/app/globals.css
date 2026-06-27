@@ -21,6 +21,25 @@
   --grid-head: #f8fafc; /* 헤더 배경 */
   --grid-hover: #eff6ff; /* 호버 행 하이라이트(연파랑) */
   --grid-row-alt: #fafafa; /* 자식행 약한 배경 */
+
+  /* 집계(롤업)행 단계 톤 — UI 피드백 ②: 자식 있는 노드(전체·성별·시즌 등)에 행 전체 배경.
+     상위일수록 진하게(L0 전체=가장 진함) → 리프(상세=흰배경)와 대비 강화. 다크모드 안전(CSS var). */
+  --agg-l0: #e2e8f0; /* slate-200 — 전체(가장 진함) */
+  --agg-l1: #e9eef5; /* 성별/브랜드/채널 */
+  --agg-l2: #eff3f8; /* 신상이월/시즌/점포 */
+  --agg-l3: #f3f6fa; /* SS·FW 그룹 */
+  --agg-l4: #f6f8fb; /* 시즌소계(가장 옅음) */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 다크모드 집계행 단계 톤(상위일수록 진함). 출력면 라이트 기본이나 토큰 안전 분기. */
+    --agg-l0: #334155;
+    --agg-l1: #2c3a4d;
+    --agg-l2: #283549;
+    --agg-l3: #243044;
+    --agg-l4: #212c40;
+  }
 }
 
 @theme inline {
@@ -40,6 +59,12 @@
   --color-grid-head: var(--grid-head);
   --color-grid-hover: var(--grid-hover);
   --color-grid-row-alt: var(--grid-row-alt);
+
+  --color-agg-l0: var(--agg-l0);
+  --color-agg-l1: var(--agg-l1);
+  --color-agg-l2: var(--agg-l2);
+  --color-agg-l3: var(--agg-l3);
+  --color-agg-l4: var(--agg-l4);
 }
 
 body {
