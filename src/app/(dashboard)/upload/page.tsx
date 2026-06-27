@@ -1,5 +1,6 @@
 import { effectiveLevel, type AuthzUser } from "@/lib/authz";
 import { UploadForm } from "@/components/upload/upload-form";
+import { TemplateDownload } from "@/components/upload/template-download";
 
 /**
  * 데이터 업로드 — SAP RAW .xlsx 업로드 · 검증 · 새 CURRENT 스냅샷 적재(주1회 운영).
@@ -22,6 +23,11 @@ export default async function UploadPage() {
           적재되고, 대시보드(물류 핵심지표 · 매장 SCM · 상품 SCM)가 자동 갱신됩니다.
         </p>
       </header>
+
+      {/* 양식 템플릿 다운로드 — 권한 무관(헤더만, 비민감). 업로드 전 준비용. */}
+      <div className="mb-5">
+        <TemplateDownload />
+      </div>
 
       {canUpload ? (
         <UploadForm />

@@ -4,12 +4,15 @@ import { useMemo, useState } from "react";
 
 import {
   isStoreCritical,
+  storeRatioDenom,
+  storeRatioMin,
   STORE_COL_GROUPS,
   STORE_FLAT_COLS,
   type StoreAggColumn,
   type StoreTreeNodeDto,
 } from "@/lib/engine-store";
 import { fmtDays, fmtEok, fmtMult, fmtNum, fmtPct, fmtQty } from "@/lib/format";
+import { guardedText } from "@/components/shared/guarded-ratio";
 
 /**
  * 매장 드릴다운 트리테이블 — 전체→채널→점포 3단(레퍼런스 BI 양식, 아이템 tree-table 재사용).
@@ -228,7 +231,11 @@ function StoreRow({
 
       {STORE_FLAT_COLS.map((c, i) => {
         const raw = node.metrics[c.field] as number | null;
-        const tone = cellTone(c, raw);
+        // 희소 분모 가드(판매배수·재고일수·시즌비중·재고보유율).
+        const min = storeRatioMin(c.field);
+        const denom = storeRatioDenom(c.field, node.metrics);
+        const g = guardedText(raw, denom, min, (v) => formatCell(c, v));
+        const tone = g.suppressed ? "text-zinc-300" : cellTone(c, raw);
         const groupStart = isGroupStart(i);
         return (
           <td
@@ -239,8 +246,9 @@ function StoreRow({
               isParent ? "font-medium" : "",
               tone,
             ].join(" ")}
+            title={g.suppressed ? g.reason : undefined}
           >
-            {formatCell(c, raw)}
+            {g.text}
           </td>
         );
       })}
