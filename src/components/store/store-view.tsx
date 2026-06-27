@@ -90,7 +90,7 @@ export function StoreView() {
     <>
       <Topbar title="매장 SCM — 점포·채널" subtitle="전체 → 채널(직영·중간관리·기타) → 점포 드릴다운" periodLocked />
 
-      <div className="flex-1 space-y-3 overflow-auto p-5">
+      <div className="flex-1 space-y-3 overflow-y-auto p-5">
         {cumulativeRequested && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-700">
             매장 SCM 은 <b>당월</b> 데이터만 제공됩니다(누적본 미동봉). 당월 기준으로 표시합니다.

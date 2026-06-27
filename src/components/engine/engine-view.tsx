@@ -193,7 +193,7 @@ export function EngineView() {
     <>
       <Topbar title="물류 핵심지표 — 시즌·아이템" subtitle="시즌 × 아이템 엔진 드릴다운" />
 
-      <div className="flex-1 space-y-3 overflow-auto p-5">
+      <div className="flex-1 space-y-3 overflow-y-auto p-5">
         {/* 에러 */}
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">

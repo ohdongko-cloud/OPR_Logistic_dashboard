@@ -93,7 +93,7 @@ export function ProductView() {
         subtitle={`전체 → 브랜드(구매그룹) → 시즌 드릴다운 · 입고→상품화→판매 ${period}추적`}
       />
 
-      <div className="flex-1 space-y-3 overflow-auto p-5">
+      <div className="flex-1 space-y-3 overflow-y-auto p-5">
         {/* 자동/수기 비율 정직 고지(스펙 §2-E — 19필드 中 8 자동). */}
         <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-[12px] text-sky-800">
           <b>자동집계 8필드</b>(입고·재고·출고·출고율·판매·출고비판매·입고비판매·매총율)는 실데이터로 채워집니다.{" "}
