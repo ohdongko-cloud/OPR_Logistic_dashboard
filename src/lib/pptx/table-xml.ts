@@ -114,10 +114,19 @@ export function getCellText(xml: string, t: TableRanges, row: number, col: numbe
 export interface SetOpts {
   /** 런이 없는 빈 셀이면 새 런을 만들지 않고 원본 그대로 반환(주입 대상 아님). */
   skipIfNoRun?: boolean;
+  /**
+   * 멀티런 셀이면 첫 런 외의 나머지 <a:t> 들을 빈칸으로 비운다(기본 true).
+   * 데이터 셀이 여러 런으로 쪼개진 경우(마스킹 누락·공백+값 분할) 값 중복/잔존을 막는다.
+   * false 면 첫 런만 치환(레거시 동작).
+   */
+  clearOtherRuns?: boolean;
 }
+
+const T_RE_G = /<a:t>([\s\S]*?)<\/a:t>/g;
 
 /**
  * (row,col) 셀의 첫 텍스트런 값을 치환(서식 보존). 새 xml 문자열 반환.
+ * 멀티런 셀은 기본적으로 나머지 런을 빈칸으로 비워 값 중복/원본 잔존을 막는다(clearOtherRuns).
  * 치환 후 좌표가 변하므로 후속 작업은 재파싱(findTableRanges) 필요.
  */
 export function setCellText(
@@ -136,7 +145,19 @@ export function setCellText(
     if (opts.skipIfNoRun) return xml; // 빈 셀 — 무시
     throw new Error(`셀(${row},${col})에 텍스트런(<a:t>)이 없습니다.`);
   }
-  const newSlice =
-    slice.slice(0, m.index) + `<a:t>${escapeXml(value)}</a:t>` + slice.slice(m.index + m[0].length);
+  const clearOthers = opts.clearOtherRuns !== false; // 기본 true
+  let newSlice: string;
+  if (clearOthers) {
+    // 첫 런 = value, 나머지 런 = "" (서식/런 구조는 보존, 텍스트만 비움).
+    let idx = 0;
+    newSlice = slice.replace(T_RE_G, () => {
+      const out = idx === 0 ? `<a:t>${escapeXml(value)}</a:t>` : `<a:t></a:t>`;
+      idx++;
+      return out;
+    });
+  } else {
+    newSlice =
+      slice.slice(0, m.index) + `<a:t>${escapeXml(value)}</a:t>` + slice.slice(m.index + m[0].length);
+  }
   return xml.slice(0, cell.start) + newSlice + xml.slice(cell.end);
 }
