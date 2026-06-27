@@ -337,8 +337,11 @@ export function UploadForm() {
       {/* 적재 결과 */}
       {result && <ResultPanel result={result} />}
 
-      {/* 스냅샷 이력 */}
-      <SnapshotHistory refreshKey={historyKey} />
+      {/* 스냅샷 이력 (복원 토글 포함) — 복원 성공 시 이력 갱신키 bump(서버는 캐시 무효화). */}
+      <SnapshotHistory
+        refreshKey={historyKey}
+        onRestored={() => setHistoryKey((k) => k + 1)}
+      />
     </div>
   );
 }
