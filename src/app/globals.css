@@ -81,3 +81,24 @@ body {
 .tabnum {
   font-variant-numeric: tabular-nums;
 }
+
+/* 상단 프록시 가로 스크롤바 — 헤더 위 sticky 얇은 가로 바(본문 가로 스크롤과 동기).
+   본문 맨 아래에만 있던 가로 스크롤바를 페이지를 내리지 않고도 상단에서 쓰게 한다.
+   얇은 트랙 + 항상 보이는 핸들(겹쳐도 본문 하단 스크롤바는 그대로 유지). */
+.opr-hscroll-proxy {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: #94a3b8 transparent; /* slate-400 핸들 */
+}
+.opr-hscroll-proxy::-webkit-scrollbar {
+  height: 10px;
+}
+.opr-hscroll-proxy::-webkit-scrollbar-track {
+  background: transparent;
+}
+.opr-hscroll-proxy::-webkit-scrollbar-thumb {
+  background: #cbd5e1; /* slate-300 */
+  border-radius: 9999px;
+}
+.opr-hscroll-proxy::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; /* slate-400 */
+}
