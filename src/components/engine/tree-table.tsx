@@ -23,6 +23,7 @@ import {
   type DensityTokens,
 } from "@/components/shared/use-table-density";
 import { DensityToggle } from "@/components/shared/density-toggle";
+import { TopHScrollbar, useHScrollSync } from "@/components/shared/h-scroll-sync";
 
 /**
  * 드릴다운 트리테이블 — 조밀한 Excel風 (레퍼런스 BI 양식).
@@ -130,6 +131,7 @@ export function TreeTable({
   onEditNode?: (node: TreeNode) => void;
 }) {
   const { density, tokens, toggle: toggleDensity } = useTableDensity();
+  const { bodyRef, proxyRef, contentWidth, overflowing } = useHScrollSync();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([root.id]));
   const [sortField, setSortField] = useState<keyof TreeNode["metrics"] | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -203,8 +205,11 @@ export function TreeTable({
         </span>
       </div>
 
+      {/* 상단 프록시 가로 스크롤바 — 페이지를 내리지 않고 상단에서 좌우 스크롤(본문과 동기). */}
+      <TopHScrollbar proxyRef={proxyRef} contentWidth={contentWidth} overflowing={overflowing} />
+
       {/* 테이블 — 페이지 스크롤(가로만 내부, 헤더 sticky). UI 피드백 ③ */}
-      <div className="overflow-x-auto">
+      <div ref={bodyRef} className="overflow-x-auto">
         <table className={["w-full min-w-[1100px] border-collapse", tokens.tableFont].join(" ")}>
           <thead className="z-20">
             {/* 그룹 헤더행 — 페이지 스크롤 시 상단 고정(sticky top-0). */}

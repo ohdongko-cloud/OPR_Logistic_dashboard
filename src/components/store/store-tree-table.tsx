@@ -20,6 +20,7 @@ import {
   type DensityTokens,
 } from "@/components/shared/use-table-density";
 import { DensityToggle } from "@/components/shared/density-toggle";
+import { TopHScrollbar, useHScrollSync } from "@/components/shared/h-scroll-sync";
 
 /**
  * 매장 드릴다운 트리테이블 — 전체→채널→점포 3단(레퍼런스 BI 양식, 아이템 tree-table 재사용).
@@ -48,6 +49,7 @@ export function StoreTreeTable({
   const flatCols = useMemo(() => colGroups.flatMap((g) => g.cols), [colGroups]);
 
   const { density, tokens, toggle: toggleDensity } = useTableDensity();
+  const { bodyRef, proxyRef, contentWidth, overflowing } = useHScrollSync();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([root.id]));
   const [sortField, setSortField] = useState<keyof StoreTreeNodeDto["metrics"] | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -112,8 +114,11 @@ export function StoreTreeTable({
         </span>
       </div>
 
+      {/* 상단 프록시 가로 스크롤바 — 페이지를 내리지 않고 상단에서 좌우 스크롤(본문과 동기). */}
+      <TopHScrollbar proxyRef={proxyRef} contentWidth={contentWidth} overflowing={overflowing} />
+
       {/* 페이지 스크롤(가로만 내부, 헤더 sticky). UI 피드백 ③ */}
-      <div className="overflow-x-auto">
+      <div ref={bodyRef} className="overflow-x-auto">
         <table className={["w-full min-w-[1000px] border-collapse", tokens.tableFont].join(" ")}>
           <thead className="z-20">
             <tr className="bg-grid-head text-[10px] uppercase tracking-wide text-zinc-400">
